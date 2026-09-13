@@ -230,7 +230,7 @@ func _build_interface() -> void:
 	if FileAccess.file_exists("res://config/build_info.json"):
 		var info = JSON.parse_string(FileAccess.get_file_as_string("res://config/build_info.json"))
 		if info is Dictionary:
-			build = "v0.4.0 · build %s · %s" % [info.get("number", "local"), info.get("commit", "unknown")]
+			build = "v0.4.0 · build %s · %s" % [str(info.get("number", "local")).trim_suffix(".0"), info.get("commit", "unknown")]
 	layout.add_child(_label(build, 18, MUTED))
 	new_world_dialog = ConfirmationDialog.new()
 	new_world_dialog.title = "Start a new test world?"
@@ -295,10 +295,11 @@ func _build_map(column: VBoxContainer) -> void:
 	inspector_title = _label("", 28, ACCENT)
 	inspector_body = _label("", 22, MUTED)
 	column.add_child(inspector_title)
-	column.add_child(inspector_body)
 	route_label = _label("", 21, MUTED)
 	column.add_child(route_label)
 	move_button = _button(column, "Move here", _move_selected)
+	column.add_child(HSeparator.new())
+	column.add_child(inspector_body)
 
 func _build_environment(column: VBoxContainer) -> void:
 	column.add_child(_label("Environment", 28, ACCENT))

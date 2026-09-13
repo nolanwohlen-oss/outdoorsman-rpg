@@ -294,6 +294,7 @@ func _ui() -> void:
 	root.add_child(app)
 	await process_frame
 	check(app.tabs.get_tab_count() == 5 and app.zone_buttons.size() == 6, "Clock, Map, Env, Layers, Log and six zones launch.")
+	check(app.move_button.get_index() < app.inspector_body.get_index(), "Phone travel control precedes long habitat and route details.")
 	var initial = app.kernel.world.to_record()
 	for zone in catalog.zones:
 		app.zone_buttons[zone.id].pressed.emit()

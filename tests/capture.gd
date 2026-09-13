@@ -46,8 +46,10 @@ func _capture() -> void:
 	app.select_zone("shallow_flat")
 	app._refresh()
 	app.tabs.current_tab = 1
-	app.tabs.get_child(1).scroll_vertical = 10000
 	await process_frame
+	await process_frame
+	# Scroll after the selected tab has completed layout, keeping its action visible.
+	app.tabs.get_child(1).scroll_vertical = int(app.inspector_title.position.y)
 	await process_frame
 	await RenderingServer.frame_post_draw
 	if root.get_texture().get_image().save_png("res://build/blocked-route-preview.png") != OK:
