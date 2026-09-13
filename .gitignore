@@ -1,0 +1,10 @@
+.godot/
+.tools/
+build/
+*.apk
+*.aab
+*.keystore
+*.jks
+export_credentials.cfg
+__pycache__/
+config/build_info.json

@@ -1,0 +1,31 @@
+{
+  "catalog_version": 1,
+  "map_id": "generic_coastal_testbed_v1",
+  "default_seed": 13092026,
+  "zones": [
+    {"id":"open_water","name":"Open water","kind":"Deep water","purpose":"Deep habitat and broad fish movement.","neighbors":["tidal_channel"],"color":"285866","column":0,"row":0},
+    {"id":"tidal_channel","name":"Tidal channel","kind":"Flow corridor","purpose":"Tide, current reversal, and movement lanes.","neighbors":["open_water","marsh_edge","shallow_flat"],"color":"337b85","column":1,"row":0},
+    {"id":"marsh_edge","name":"Marsh edge","kind":"Covered shallows","purpose":"Cover, salinity transitions, and predator patrols.","neighbors":["tidal_channel","shallow_flat","sandy_shore"],"color":"526c51","column":0,"row":1},
+    {"id":"shallow_flat","name":"Shallow flat","kind":"Open shallows","purpose":"Light, warming water, and feeding activity.","neighbors":["tidal_channel","marsh_edge","sandy_shore"],"color":"538b80","column":1,"row":1},
+    {"id":"sandy_shore","name":"Sandy shore","kind":"Bank access","purpose":"Casting, landing fish, and reaching camp.","neighbors":["marsh_edge","shallow_flat","elevated_camp"],"color":"937f54","column":0,"row":2},
+    {"id":"elevated_camp","name":"Elevated camp","kind":"Dry ground","purpose":"Shelter, storage, rest, sleep, and survival testing.","neighbors":["sandy_shore"],"color":"675f4b","column":1,"row":2}
+  ],
+  "species": [
+    {"id":"mullet","name":"Mullet"},
+    {"id":"atlantic_menhaden","name":"Atlantic menhaden"},
+    {"id":"redfish","name":"Redfish"},
+    {"id":"speckled_trout","name":"Speckled trout"},
+    {"id":"black_drum","name":"Black drum"}
+  ],
+  "layers": [
+    {"name":"Clock and calendar","phase":3,"description":"6:1 game time, pauses, and scheduled events."},
+    {"name":"Weather","phase":5,"description":"Temperature, wind, cloud, rain, and fronts."},
+    {"name":"Water","phase":5,"description":"Tide, flow, depth, salinity, clarity, and oxygen."},
+    {"name":"Habitat","phase":4,"description":"Cover, food, access, and carrying capacity."},
+    {"name":"Ecology","phase":6,"description":"Populations, individuals, movement, and feeding."},
+    {"name":"Player condition","phase":7,"description":"Hydration, exposure, energy, sleep, and load."},
+    {"name":"Inventory and equipment","phase":7,"description":"Physical items, containers, and equipment condition."},
+    {"name":"Action resolution","phase":8,"description":"Fishing and survival actions with traceable outcomes."},
+    {"name":"Persistence and audit","phase":10,"description":"Versioned saves and validated state histories."}
+  ]
+}
