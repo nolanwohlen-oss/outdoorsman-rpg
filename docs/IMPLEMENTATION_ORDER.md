@@ -40,6 +40,10 @@ Implemented records cover world/map identity, player location, clock and fractio
 
 The current test includes only the reciprocal shore–camp path (two game minutes each way), safe camp waits, fixed daylight, and scheduler markers. All six zones remain inspectable. Habitat, weather/water, biological accounting, player vitals, quantities/items, fishing, and camping simulation still require their own contracts and implementation.
 
+## Phase 2B delivery
+
+Phase 2B completes the generic map/habitat movement test layer: all six zones have canonical terrain/exposure/habitat records, reciprocal foot/wade/boat routes, fixed test durations, visible blocked-route reasons, and a validated Phase 2A-to-2B save migration. The channel skiff is fixed map access infrastructure, not inventory. Weather, water, ecology, player condition, fishing, camping, 3D, and monetization remain outside the delivery.
+
 ## Next concrete task
 
-First complete the Phase 2A phone checklist, including background/reopen and exact save/load. Then extend the contracts and test map with access/habitat and environment data before adding weather/water and player needs. Each added layer must preserve the existing one-day replay and save-continuation gates.
+Complete the Phase 2B phone checklist, including the full six-zone route and a save/reopen at open water. Then add weather and water as explicit data contracts that modify future travel availability/duration without breaking existing replay and save-continuation gates.

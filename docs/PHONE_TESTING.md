@@ -1,29 +1,42 @@
-# Phone testing — Phase 2A (v0.2.0)
+# Phone testing — Phase 2B (v0.3.0)
 
 ## Install the update
 
 1. In your phone browser, sign into GitHub and open the repository's **Actions → Build test app**.
-2. Open the newest successful run on `main` for the Phase 2A commit.
+2. Open the newest successful run on `main` for the Phase 2B commit.
 3. Under **Artifacts**, download **outdoorsman-android-debug**. Extract the ZIP and open `outdoorsman-test.apk` in Files.
-4. Install it as an update, then launch **Outdoorsman Systems Lab**. The header must say **PHASE 2A** and the footer **v0.2.0** with the new build number.
+4. Install it as an update, then launch **Outdoorsman Systems Lab**. The header must say **PHASE 2B** and the footer **v0.3.0** with the new build number.
 
-The previous Phase 1 shell had no saves. This build starts with a new world at sandy shore, Day 1, 06:00, paused. Future openings restore the most recent autosave and remain paused.
+This build starts at sandy shore, Day 1, 06:00, paused. A Phase 2A autosave should migrate and remain paused; it adds the six-zone map access state without changing your clock, location, scheduler, or history.
 
-## First test: move, wait, save, close, load
+## First test: six-zone map travel
+
+Leave Run off. In **Map**, inspect each zone; the panel must show terrain, exposure, habitat tags, potential species, and routes from that zone. Potential species are labels only, not active fish.
+
+1. At **Sandy shore**, select **Open water**. The action must be disabled and say that no direct route exists.
+2. Select **Marsh edge** → **Travel by foot · 4 min**. The clock becomes **06:04**.
+3. Select **Tidal channel** → **Travel by wade · 5 min**. The clock becomes **06:09**.
+4. Select **Open water** → **Travel by boat · 12 min**. The clock becomes **06:21**.
+5. Travel back to **Tidal channel**, **Marsh edge**, and **Sandy shore**. Each return uses the same stated route and time.
+6. From shore, take **Shallow flat** → **Tidal channel** → **Open water** to verify the second branch. Every zone must be reachable; there is no direct shore-to-open-water jump.
+
+Report any wrong duration, unexpected movement, enabled blocked button, or missing route/habitat text.
+
+## Second test: move, wait, save, close, load
 
 Leave Run off for this test so the expected times are exact. The Clock panel scrolls to reveal Save/Load and the scheduler/seed controls.
 
-1. Tap **Go to camp · 2 min**. Location becomes **Elevated camp** and time **Day 1, 06:02:00**.
-2. Tap **15 min**. Time becomes **06:17:00**. It remains paused.
+1. Return to **Sandy shore**, then tap **Go to camp · 2 min**. Location becomes **Elevated camp** and time advances two game minutes.
+2. Tap **15 min**. Time advances exactly fifteen game minutes and remains paused.
 3. Tap **Save**. Note the time and the `State` fingerprint below Save/Load; a screenshot is sufficient.
-4. Tap **60 min**. Time becomes **07:17:00**.
-5. Tap **Load**. Time returns to **06:17:00**, location stays camp, and the loaded fingerprint matches the saved fingerprint.
+4. Tap **60 min**. Time advances exactly one hour.
+5. Tap **Load**. Time returns to the value from step 2, location stays camp, and the loaded fingerprint matches the saved fingerprint.
 6. Open **Log**. It restores the saved move/wait history; the extra hour's events disappear.
-7. Press Home, close the app from recent apps, and reopen. It restores **06:17:00** at camp, paused. Tap **Load** to compare the manual snapshot again.
+7. Press Home, close the app from recent apps, and reopen. It restores the saved camp state, paused. Tap **Load** to compare the manual snapshot again.
 
 Report any changed time, location, fingerprint, missing events, or save error.
 
-## Second test: foreground, lock, resume
+## Third test: foreground, lock, resume
 
 1. Tap **Run clock**. About ten real seconds should advance one game minute; sixty real seconds should advance six game minutes.
 2. Tap **Pause clock**. Time must freeze.
@@ -32,7 +45,7 @@ Report any changed time, location, fingerprint, missing events, or save error.
 
 A long foreground frame can also pause the test clock with a message. Record it if it happens during ordinary play.
 
-## Third test: interrupted wait and a day boundary
+## Fourth test: interrupted wait and a day boundary
 
 1. At camp with the clock paused, scroll down and tap **Interrupt next wait in 10 min**.
 2. Tap **15 min**. It should stop after exactly ten game minutes, with the interruption and stopped wait in the Log.
@@ -41,9 +54,7 @@ A long foreground frame can also pause the test clock with a message. Record it 
 
 The waiting rule is only a camp test fixture. Weather/hazards, real rest/sleep, and player needs are later layers.
 
-## Map and new-world checks
-
-All six zones remain inspectable under Map. Inspection alone must not move the player or change time. Only sandy shore and elevated camp support **Move here · 2 min**; water access is not implemented yet.
+## New-world checks
 
 At the bottom of Clock, enter a seed and tap **New world**, then confirm. It resets to 06:00 at shore and replaces autosave. Your manual save remains available until you tap Save again. The same seed and same paused actions should produce matching saved state fingerprints.
 

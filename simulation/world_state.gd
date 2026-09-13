@@ -1,7 +1,8 @@
 extends RefCounted
-## Authoritative Phase 2A record. It owns data, never a scene or a system clock.
+## Authoritative Phase 2B record. It owns data, never a scene or a system clock.
 
-const SCHEMA_VERSION := 1
+const Map = preload("res://simulation/testbed_map.gd")
+const SCHEMA_VERSION := 2
 const MAP_ID := "generic_coastal_testbed_v1"
 const DAY_MS := 86400000
 const START_MS := 21600000 # Day 1, 06:00. Fixed testbed sunrise/sunset: 06:00/18:00.
@@ -9,7 +10,7 @@ const MAX_TIME_MS := 3153600000000 # Bounded to keep all JSON integers exactly r
 const MAX_SEED := 2147483647
 const MAX_HISTORY := 200
 const MAX_PENDING := 64
-const ZONES := ["open_water", "tidal_channel", "marsh_edge", "shallow_flat", "sandy_shore", "elevated_camp"]
+const ZONES := Map.ZONE_IDS
 const CALENDAR := {"sunrise": 21600000, "sunset": 64800000, "midnight": 0}
 const LOG_KINDS := ["world_started", "observe", "move", "wait_started", "wait_finished", "wait_stopped", "scheduled", "sunrise", "sunset", "midnight", "marker", "wait_interrupt", "random_draw"]
 
@@ -17,6 +18,8 @@ var seed: int = 13092026
 var game_time_ms: int = START_MS
 var sub_ms: int = 0 # Remainder after converting scaled real microseconds to game milliseconds.
 var player_zone: String = "sandy_shore"
+# A fixed channel skiff is testbed access infrastructure, not an inventory item.
+var channel_skiff_available: bool = true
 var rng_state: int = 1
 var next_event_id: int = 1
 var next_log_id: int = 1
@@ -46,9 +49,10 @@ static func next_calendar_time(kind: String, now_ms: int) -> int:
 
 func to_record() -> Dictionary:
 	return {
-		"schema_version": SCHEMA_VERSION, "map_id": MAP_ID, "seed": seed,
+		"schema_version": SCHEMA_VERSION, "map_id": MAP_ID, "map_version": Map.MAP_VERSION, "seed": seed,
 		"clock": {"game_time_ms": game_time_ms, "sub_ms": sub_ms},
 		"player": {"id": "player_1", "zone_id": player_zone},
+		"travel": {"channel_skiff_available": channel_skiff_available},
 		"random_stream": {"algorithm": "park_miller_16807_v1", "state": rng_state},
 		"next_event_id": next_event_id, "next_log_id": next_log_id,
 		"events_processed": events_processed,
@@ -57,11 +61,11 @@ func to_record() -> Dictionary:
 
 static func validate(record: Variant) -> PackedStringArray:
 	var errors := PackedStringArray()
-	if not has_keys(record, ["schema_version", "map_id", "seed", "clock", "player", "random_stream", "next_event_id", "next_log_id", "events_processed", "scheduled_events", "history"]):
+	if not has_keys(record, ["schema_version", "map_id", "map_version", "seed", "clock", "player", "travel", "random_stream", "next_event_id", "next_log_id", "events_processed", "scheduled_events", "history"]):
 		return PackedStringArray(["World record has missing or unknown fields."])
 	if not is_integer(record.schema_version, SCHEMA_VERSION, SCHEMA_VERSION):
 		errors.append("Unsupported world schema version.")
-	if record.map_id != MAP_ID or not is_integer(record.seed, 0, MAX_SEED):
+	if record.map_id != MAP_ID or not is_integer(record.map_version, Map.MAP_VERSION, Map.MAP_VERSION) or not is_integer(record.seed, 0, MAX_SEED):
 		errors.append("Invalid map ID or seed.")
 	if not has_keys(record.clock, ["game_time_ms", "sub_ms"]):
 		errors.append("Invalid clock record.")
@@ -69,8 +73,10 @@ static func validate(record: Variant) -> PackedStringArray:
 		errors.append("Invalid clock units or range.")
 	if not has_keys(record.player, ["id", "zone_id"]):
 		errors.append("Invalid player record.")
-	elif record.player.id != "player_1" or not record.player.zone_id in ["sandy_shore", "elevated_camp"]:
-		errors.append("Invalid player ID or inaccessible player zone.")
+	elif record.player.id != "player_1" or not record.player.zone_id in ZONES:
+		errors.append("Invalid player ID or player zone.")
+	if not has_keys(record.travel, ["channel_skiff_available"]) or typeof(record.travel.channel_skiff_available) != TYPE_BOOL:
+		errors.append("Invalid travel access record.")
 	if not has_keys(record.random_stream, ["algorithm", "state"]):
 		errors.append("Invalid random stream record.")
 	elif record.random_stream.algorithm != "park_miller_16807_v1" or not is_integer(record.random_stream.state, 1, MAX_SEED - 1):
@@ -135,6 +141,26 @@ static func validate(record: Variant) -> PackedStringArray:
 		errors.append("History does not match its sequence counter.")
 	return errors
 
+static func migrate_record(record: Variant) -> Dictionary:
+	if not record is Dictionary:
+		return {"ok": false, "message": "World payload is not an object.", "code": "invalid"}
+	var schema: Variant = record.get("schema_version")
+	if is_integer(schema, SCHEMA_VERSION, SCHEMA_VERSION):
+		var current_errors := validate(record)
+		if not current_errors.is_empty():
+			return {"ok": false, "message": " ".join(current_errors), "code": "invalid"}
+		return {"ok": true, "record": record.duplicate(true), "migrated": false}
+	if is_integer(schema, 1, 1):
+		var migrated: Dictionary = record.duplicate(true)
+		migrated.schema_version = SCHEMA_VERSION
+		migrated.map_version = Map.MAP_VERSION
+		migrated.travel = {"channel_skiff_available": true}
+		var errors := validate(migrated)
+		if not errors.is_empty():
+			return {"ok": false, "message": "Cannot migrate legacy save: " + " ".join(errors), "code": "invalid"}
+		return {"ok": true, "record": migrated, "migrated": true, "message": "Phase 2A save migrated to the six-zone map."}
+	return {"ok": false, "message": "Unsupported world schema; existing files were kept.", "code": "unsupported"}
+
 static func from_record(record: Dictionary) -> RefCounted:
 	# Validation is intentionally completed before any live world is replaced.
 	if not validate(record).is_empty():
@@ -144,6 +170,7 @@ static func from_record(record: Dictionary) -> RefCounted:
 	result.game_time_ms = int(record.clock.game_time_ms)
 	result.sub_ms = int(record.clock.sub_ms)
 	result.player_zone = record.player.zone_id
+	result.channel_skiff_available = bool(record.travel.channel_skiff_available)
 	result.rng_state = int(record.random_stream.state)
 	result.next_event_id = int(record.next_event_id)
 	result.next_log_id = int(record.next_log_id)

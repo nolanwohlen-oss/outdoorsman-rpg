@@ -6,6 +6,7 @@ const World = preload("res://simulation/world_state.gd")
 const Kernel = preload("res://simulation/kernel.gd")
 const Session = preload("res://simulation/session.gd")
 const SaveStore = preload("res://simulation/save_store.gd")
+const Map = preload("res://simulation/testbed_map.gd")
 var failures := 0
 var checks := 0
 var test_directory: String
@@ -40,16 +41,13 @@ func _contracts() -> void:
 	bad.player.zone_id = "missing_zone"
 	mutations.append(bad)
 	bad = record.duplicate(true)
-	bad.player.zone_id = "open_water"
-	mutations.append(bad)
-	bad = record.duplicate(true)
 	bad.random_stream.state = 0
 	mutations.append(bad)
 	bad = record.duplicate(true)
 	bad.seed = true
 	mutations.append(bad)
 	bad = record.duplicate(true)
-	bad.schema_version = 2
+	bad.schema_version = 3
 	mutations.append(bad)
 	bad = record.duplicate(true)
 	bad.unknown_field = "must not silently discard"
@@ -74,6 +72,33 @@ func _contracts() -> void:
 	mutations.append(bad)
 	for invalid in mutations:
 		check(not k.restore(invalid).ok and k.world.to_record() == record, "Invalid restore is rejected without partial mutation.")
+	var legacy: Dictionary = record.duplicate(true)
+	legacy.erase("map_version")
+	legacy.erase("travel")
+	legacy.schema_version = 1
+	var migration := World.migrate_record(legacy)
+	check(migration.ok and migration.migrated and migration.record.schema_version == World.SCHEMA_VERSION and migration.record.travel.channel_skiff_available, "Phase 2A save migrates to the Phase 2B travel schema.")
+
+func _map_and_travel() -> void:
+	check(Map.validate().is_empty(), "Canonical six-zone map and reciprocal route graph validate.")
+	var k := Kernel.new(42)
+	var before := k.world.to_record()
+	check(not k.move("open_water").ok and k.world.to_record() == before, "Non-adjacent travel is blocked without time, location, or log mutation.")
+	check(not k.move("unknown").ok and k.world.to_record() == before, "Unknown destination is blocked without mutation.")
+	check(k.move("marsh_edge").ok and k.world.game_time_ms == World.START_MS + 4 * Kernel.MINUTE_MS, "Foot route uses its explicit four-minute duration.")
+	check(k.move("tidal_channel").ok and k.world.game_time_ms == World.START_MS + 9 * Kernel.MINUTE_MS, "Wade route adds its explicit five-minute duration.")
+	check(k.move("open_water").ok and k.world.game_time_ms == World.START_MS + 21 * Kernel.MINUTE_MS, "Boat route reaches open water through the channel skiff access.")
+	check(k.world.player_zone == "open_water" and World.validate(k.world.to_record()).is_empty(), "Every reached zone remains valid and saveable.")
+	k.world.channel_skiff_available = false
+	before = k.world.to_record()
+	check(not k.move("tidal_channel").ok and k.world.to_record() == before, "Unavailable channel skiff blocks a boat link without mutation.")
+	var a := Kernel.new(42)
+	var b := Kernel.new(42)
+	for destination in ["shallow_flat", "tidal_channel", "open_water"]:
+		a.move(destination)
+		b.move(destination)
+	var decoded := SaveStore.decode(SaveStore.encode(a.world.to_record()))
+	check(decoded.ok and b.restore(decoded.record).ok and same(a, b), "Travel route history and access state survive a save/load round trip.")
 
 func _clock_and_scheduler() -> void:
 	var a := Kernel.new(42)
@@ -171,6 +196,12 @@ func _save_files() -> void:
 	var first := k.world.to_record()
 	check(store.save_slot("manual", first).ok, "First save writes verified primary bytes.")
 	check(store.load_slot("manual").record == first, "Disk round trip restores the complete record.")
+	var legacy: Dictionary = first.duplicate(true)
+	legacy.erase("map_version")
+	legacy.erase("travel")
+	legacy.schema_version = 1
+	var migrated := SaveStore.decode(SaveStore.encode(legacy))
+	check(migrated.ok and migrated.migrated and migrated.record.player.zone_id == "sandy_shore", "Legacy save envelope migrates through the save store without losing location.")
 	k.move("elevated_camp")
 	k.wait_minutes(60)
 	var second := k.world.to_record()
@@ -265,6 +296,19 @@ func _ui() -> void:
 		app.zone_buttons[zone.id].pressed.emit()
 		check(app.selected_zone_id == zone.id and app.inspector_title.text == zone.name, "Every zone is inspectable by touch.")
 	check(app.kernel.world.to_record() == initial, "Map inspection cannot move the player or advance simulation.")
+	app.select_zone("marsh_edge")
+	check(not app.move_button.disabled and app.route_label.text.contains("Foot"), "Map inspector exposes a direct foot route and enabled travel control.")
+	app.select_zone("open_water")
+	check(app.move_button.disabled and app.route_label.text.contains("Blocked"), "Map inspector explains non-adjacent travel instead of allowing a hidden jump.")
+	app.select_zone("marsh_edge")
+	app._move_selected()
+	check(app.kernel.world.player_zone == "marsh_edge", "Map travel control moves to a connected zone.")
+	app._move_to("tidal_channel")
+	app._move_to("open_water")
+	check(app.kernel.world.player_zone == "open_water" and app.location_label.text.contains("Open water"), "UI can reach boat-only open water through the channel link.")
+	app._move_to("tidal_channel")
+	app._move_to("marsh_edge")
+	app._move_to("sandy_shore")
 	check(app.wait_buttons[0].disabled, "Unsafe waiting is disabled at shore.")
 	app._move_to("elevated_camp")
 	check(not app.wait_buttons[0].disabled, "Camp enables the safe wait controls.")
@@ -297,11 +341,12 @@ func _ui() -> void:
 func _run() -> void:
 	test_directory = "res://build/tests-%d" % OS.get_process_id()
 	_contracts()
+	_map_and_travel()
 	_clock_and_scheduler()
 	_actions()
 	_random_and_replay()
 	_save_files()
 	_session_lifecycle()
 	await _ui()
-	print("Phase 2A checks: %d passed, %d failed" % [checks - failures, failures])
+	print("Phase 2B checks: %d passed, %d failed" % [checks - failures, failures])
 	quit(0 if failures == 0 else 1)

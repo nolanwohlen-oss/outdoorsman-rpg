@@ -2,8 +2,8 @@ extends RefCounted
 ## All time and action mutations pass through this headless, deterministic kernel.
 
 const World = preload("res://simulation/world_state.gd")
+const Map = preload("res://simulation/testbed_map.gd")
 const MINUTE_MS := 60000
-const MOVE_MS := 120000
 const WAIT_MINUTES := [5, 15, 60]
 
 var world: World
@@ -86,17 +86,21 @@ func advance_real_us(real_us: int) -> Dictionary:
 	return _advance(delta_ms)
 
 func move(destination: String) -> Dictionary:
-	if destination == world.player_zone:
-		return _failure("You are already here.")
-	if not destination in ["sandy_shore", "elevated_camp"]:
-		return _failure("Water access is not implemented. Use the shore–camp path.")
-	if world.game_time_ms + MOVE_MS > World.MAX_TIME_MS:
+	var resolution := Map.travel_result(world.player_zone, destination, {"channel_skiff_available": world.channel_skiff_available})
+	if not resolution.ok:
+		return _failure(resolution.reason)
+	var route: Dictionary = resolution.route
+	var duration_ms: int = int(route.minutes) * MINUTE_MS
+	if world.game_time_ms + duration_ms > World.MAX_TIME_MS:
 		return _failure("Clock limit reached.")
 	var origin := world.player_zone
-	_advance(MOVE_MS)
+	_advance(duration_ms)
 	world.player_zone = destination
-	_log("move", "%s → %s. Travel: 2 game minutes." % [origin, destination])
-	return {"ok": true, "message": "Moved in 2 game minutes."}
+	_log("move", "%s → %s by %s. Travel: %d game minutes." % [origin, destination, route.mode, int(route.minutes)])
+	return {"ok": true, "route": route.duplicate(true), "message": "Moved by %s in %d game minutes." % [route.mode, int(route.minutes)]}
+
+func travel_result(destination: String) -> Dictionary:
+	return Map.travel_result(world.player_zone, destination, {"channel_skiff_available": world.channel_skiff_available})
 
 func wait_minutes(minutes: int) -> Dictionary:
 	if world.player_zone != "elevated_camp":

@@ -5,6 +5,7 @@ const Catalog = preload("res://scripts/catalog.gd")
 const Kernel = preload("res://simulation/kernel.gd")
 const Session = preload("res://simulation/session.gd")
 const SaveStore = preload("res://simulation/save_store.gd")
+const Map = preload("res://simulation/testbed_map.gd")
 const TEXT := Color("e8eee2")
 const MUTED := Color("a8bcb3")
 const ACCENT := Color("d8bd83")
@@ -20,6 +21,7 @@ var zone_buttons: Dictionary = {}
 var inspector_title: Label
 var inspector_body: Label
 var move_button: Button
+var route_label: Label
 var event_log: RichTextLabel
 var seed_input: SpinBox
 var seed_value := 13092026
@@ -58,6 +60,8 @@ func _ready() -> void:
 		if loaded.ok:
 			kernel.restore(loaded.record)
 			_status(loaded.get("message", "Saved world restored. Clock is paused."))
+			if loaded.get("migrated", false):
+				_autosave()
 		else:
 			save_blocked = true
 			_status("Load failed: " + loaded.message + " Use New world to reset autosave.")
@@ -190,7 +194,7 @@ func _build_interface() -> void:
 	add_child(margin)
 	var layout := _column(margin, 8)
 	layout.add_child(_label("OUTDOORSMAN", 34))
-	layout.add_child(_label("SYSTEMS LAB  /  PHASE 2A", 20, ACCENT))
+	layout.add_child(_label("SYSTEMS LAB  /  PHASE 2B", 20, ACCENT))
 	clock_label = _label("", 30)
 	calendar_label = _label("", 21, MUTED)
 	location_label = _label("", 23, ACCENT)
@@ -214,11 +218,11 @@ func _build_interface() -> void:
 	status_label = _label("", 21, ACCENT)
 	status_label.max_lines_visible = 4
 	layout.add_child(status_label)
-	var build := "v0.2.0 · local build"
+	var build := "v0.3.0 · local build"
 	if FileAccess.file_exists("res://config/build_info.json"):
 		var info = JSON.parse_string(FileAccess.get_file_as_string("res://config/build_info.json"))
 		if info is Dictionary:
-			build = "v0.2.0 · build %s · %s" % [info.get("number", "local"), info.get("commit", "unknown")]
+			build = "v0.3.0 · build %s · %s" % [info.get("number", "local"), info.get("commit", "unknown")]
 	layout.add_child(_label(build, 18, MUTED))
 	new_world_dialog = ConfirmationDialog.new()
 	new_world_dialog.title = "Start a new test world?"
@@ -263,7 +267,7 @@ func _build_clock(column: VBoxContainer) -> void:
 	_button(column, "New world", _request_new_world)
 
 func _build_map(column: VBoxContainer) -> void:
-	column.add_child(_label("Tap to inspect. Travel uses the shore–camp path in this test.", 22, MUTED))
+	column.add_child(_label("Tap a zone. Direct links show mode, fixed test duration, and access requirement.", 22, MUTED))
 	var grid := GridContainer.new()
 	grid.columns = 2
 	grid.add_theme_constant_override("h_separation", 12)
@@ -284,16 +288,20 @@ func _build_map(column: VBoxContainer) -> void:
 	inspector_body = _label("", 22, MUTED)
 	column.add_child(inspector_title)
 	column.add_child(inspector_body)
-	move_button = _button(column, "Move here · 2 min", _move_selected)
+	route_label = _label("", 21, MUTED)
+	column.add_child(route_label)
+	move_button = _button(column, "Move here", _move_selected)
 
 func _build_layers(column: VBoxContainer) -> void:
 	column.add_child(_label("Simulation roadmap", 28, ACCENT))
-	column.add_child(_label("Active: clock, scheduled events, shore–camp travel, safe waits, and local saves.", 23))
+	column.add_child(_label("Active: clock, scheduled events, six-zone travel/habitat testbed, safe waits, and local saves.", 23))
 	for layer in catalog.layers:
 		column.add_child(_label(layer.name, 25, ACCENT))
 		var detail: String = layer.description
 		if layer.name == "Clock and calendar":
 			detail += " Active in Phase 2A; fixed testbed daylight."
+		elif layer.name == "Habitat":
+			detail += " Active as zone tags and access records; no ecological simulation yet."
 		elif layer.name == "Persistence and audit":
 			detail += " Active for the current kernel; later layers will extend its schema."
 		else:
@@ -303,7 +311,7 @@ func _build_layers(column: VBoxContainer) -> void:
 	column.add_child(_label("Initial species", 28, ACCENT))
 	for species in catalog.species:
 		column.add_child(_label(species.name, 23))
-	column.add_child(_label("Catalog only. Populations and behavior arrive with ecology.", 22, MUTED))
+	column.add_child(_label("Shown per habitat as potential use only. Populations and behavior arrive with ecology.", 22, MUTED))
 
 func _status(message: String) -> void:
 	if status_label != null:
@@ -353,11 +361,30 @@ func select_zone(zone_id: String) -> void:
 		zone_buttons[zone.id].text = zone.name + ("\nYOU ARE HERE" if zone.id == kernel.world.player_zone else "\n" + zone.kind)
 		if zone.id == zone_id:
 			inspector_title.text = zone.name
-			var neighbors := PackedStringArray()
-			for id in zone.neighbors:
-				neighbors.append(_zone_name(id))
-			inspector_body.text = zone.purpose + "\n\nConnections: " + ", ".join(neighbors)
-	move_button.disabled = save_blocked or zone_id == kernel.world.player_zone or not zone_id in ["sandy_shore", "elevated_camp"]
+			var record: Dictionary = Map.ZONES[zone_id]
+			var route_lines := PackedStringArray()
+			for route in Map.routes_from(zone_id):
+				route_lines.append("→ %s: %s" % [_zone_name(route.to), Map.route_text(route)])
+			var species_names := PackedStringArray()
+			for species_id in record.species_ids:
+				for species in catalog.species:
+					if species.id == species_id:
+						species_names.append(species.name)
+			inspector_body.text = "%s\n\nTerrain: %s\nExposure: %s\nHabitat: %s\nPotential species: %s\n\nRoutes from here:\n%s" % [zone.purpose, record.terrain, record.exposure, ", ".join(record.habitat_tags), ", ".join(species_names) if not species_names.is_empty() else "None", "\n".join(route_lines)]
+	var travel := kernel.travel_result(zone_id)
+	if zone_id == kernel.world.player_zone:
+		route_label.text = "Current location. Choose a linked zone to travel."
+		move_button.text = "You are here"
+		move_button.disabled = true
+	elif travel.ok:
+		var route: Dictionary = travel.route
+		route_label.text = "Direct route: " + Map.route_text(route)
+		move_button.text = "Travel by %s · %d min" % [route.mode, int(route.minutes)]
+		move_button.disabled = save_blocked
+	else:
+		route_label.text = "Blocked: " + travel.reason
+		move_button.text = "No direct route"
+		move_button.disabled = true
 
 func _toggle_running() -> void:
 	session.set_running(not session.running and not save_blocked)

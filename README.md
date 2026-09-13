@@ -2,9 +2,9 @@
 
 An Android outdoor survival RPG, beginning with a small laboratory for its simulation systems.
 
-**Current milestone: Phase 2A — clock and persistence foundation (v0.2.0).** The app runs a deterministic 6:1 clock with calendar boundaries, scheduled events, shore–camp travel, safe waiting, and versioned local saves. It restores the saved world while paused. Weather, water, fish populations, inventory, and survival needs remain planned.
+**Current milestone: Phase 2B — six-zone movement and habitat testbed (v0.3.0).** The app runs a deterministic 6:1 clock with calendar boundaries, scheduled events, six-zone foot/wade/boat traversal, habitat records, safe waiting, and versioned local saves. It restores the saved world while paused. Weather, water conditions, fish populations, inventory, and survival needs remain planned.
 
-The Phase 2A delivery spans the minimum data contracts, clock, and early persistence from the longer implementation roadmap. See [the data contracts and scope](docs/PHASE_2A.md).
+The Phase 2A delivery spans the minimum data contracts, clock, and early persistence from the longer implementation roadmap. Phase 2B adds the first real access/habitat test layer. See [Phase 2A](docs/PHASE_2A.md) and [Phase 2B](docs/PHASE_2B.md).
 
 ## Test on your phone
 
@@ -12,7 +12,7 @@ The Phase 2A delivery spans the minimum data contracts, clock, and early persist
 2. Open the newest successful run for `main`.
 3. Scroll to **Artifacts** and download **outdoorsman-android-debug**.
 4. Extract the downloaded ZIP in your phone's Files app and open `outdoorsman-test.apk`. Allow that app to install this APK if Android asks.
-5. Launch **Outdoorsman Systems Lab**. Use **Clock** to travel to camp, wait, save, and load. Follow the [Phase 2A phone checklist](docs/PHONE_TESTING.md).
+5. Launch **Outdoorsman Systems Lab**. Use **Map** to traverse the testbed, then use **Clock** to wait, save, and load. Follow the [phone checklist](docs/PHONE_TESTING.md).
 
 This is a development APK, not a Google Play release. No Windows PC, Google Play developer account, advertising account, or payment setup is needed for this milestone. See [phone testing](docs/PHONE_TESTING.md) for the checklist and build troubleshooting.
 
@@ -35,8 +35,8 @@ The GitHub workflow also exports and launches a Linux desktop build. Windows use
 | Path | Purpose |
 | --- | --- |
 | `scenes/`, `scripts/` | Touch interface and placeholder map |
-| `data/testbed.json` | Six zone definitions and five species names; no ecological tuning yet |
-| `simulation/` | Authoritative world record, clock/actions/scheduler, lifecycle gate, save store |
+| `data/testbed.json` | Presentation names, colors, layout, and species catalog |
+| `simulation/` | Authoritative world/map records, travel/clock/actions/scheduler, lifecycle gate, save store |
 | `tests/` | Deterministic behavior, save recovery, lifecycle, UI, and cross-process replay |
 | `tools/` | Pinned engine installation and build preparation |
 | `.github/workflows/build.yml` | Automated tests and Android/Linux exports |

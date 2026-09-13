@@ -38,12 +38,10 @@ static func decode(text: String) -> Dictionary:
 		return _failure("Save checksum does not match.")
 	if parser.parse(envelope.payload) != OK or not parser.data is Dictionary:
 		return _failure("World payload is invalid JSON.")
-	if World.is_integer(parser.data.get("schema_version"), 1, World.MAX_TIME_MS) and parser.data.schema_version != World.SCHEMA_VERSION:
-		return _failure("Unsupported world schema; existing files were kept.", "unsupported")
-	var errors := World.validate(parser.data)
-	if not errors.is_empty():
-		return _failure(" ".join(errors))
-	return {"ok": true, "record": World.from_record(parser.data).to_record()}
+	var migration := World.migrate_record(parser.data)
+	if not migration.ok:
+		return _failure(migration.message, migration.get("code", "invalid"))
+	return {"ok": true, "record": World.from_record(migration.record).to_record(), "migrated": migration.get("migrated", false), "message": migration.get("message", "")}
 
 func path_for(slot: String) -> String:
 	return directory.path_join(slot + ".json")
