@@ -6,6 +6,7 @@ const Kernel = preload("res://simulation/kernel.gd")
 const Session = preload("res://simulation/session.gd")
 const SaveStore = preload("res://simulation/save_store.gd")
 const Map = preload("res://simulation/testbed_map.gd")
+const Ecology = preload("res://simulation/ecology.gd")
 const TEXT := Color("e8eee2")
 const MUTED := Color("a8bcb3")
 const ACCENT := Color("d8bd83")
@@ -44,6 +45,7 @@ var last_environment_tick: int = -1
 var environment_stamp: Label
 var weather_label: Label
 var water_label: Label
+var ecology_label: Label
 var environment_zone: OptionButton
 
 func _ready() -> void:
@@ -230,11 +232,11 @@ func _build_interface() -> void:
 	status_label = _label("", 21, ACCENT)
 	status_label.max_lines_visible = 4
 	layout.add_child(status_label)
-	var build := "v0.4.0 · local build"
+	var build := "v0.5.0 · local build"
 	if FileAccess.file_exists("res://config/build_info.json"):
 		var info = JSON.parse_string(FileAccess.get_file_as_string("res://config/build_info.json"))
 		if info is Dictionary:
-			build = "v0.4.0 · build %s · %s" % [str(info.get("number", "local")).trim_suffix(".0"), info.get("commit", "unknown")]
+			build = "v0.5.0 · build %s · %s" % [str(info.get("number", "local")).trim_suffix(".0"), info.get("commit", "unknown")]
 	layout.add_child(_label(build, 18, MUTED))
 	new_world_dialog = ConfirmationDialog.new()
 	new_world_dialog.title = "Start a new test world?"
@@ -323,6 +325,8 @@ func _build_environment(column: VBoxContainer) -> void:
 	column.add_child(environment_zone)
 	water_label = _label("", 23)
 	column.add_child(water_label)
+	ecology_label = _label("", 23)
+	column.add_child(ecology_label)
 	column.add_child(_label("Read-only lab instruments, not a player forecast. Shared coastal weather; water differs by zone. Inspecting never moves you.", 21, MUTED))
 	column.add_child(_label("Synthetic 12-hour tide and 48-hour front. Rain leaves runoff; water temperature responds gradually. Not real-world safety guidance.", 21, MUTED))
 	column.add_child(_label("To test quickly: go to camp, use Clock → 60 min, then return here. No background progression. Run works in every zone if a route closes.", 21, MUTED))
@@ -343,6 +347,10 @@ func _refresh_environment() -> void:
 		water_label.text = "Elevated dry ground. No water body.\nDepth, current, salinity, clarity, oxygen and water temperature: not applicable."
 	else:
 		water_label.text = "Water depth: %d cm\nCurrent: %s · %d cm/s\nWater temperature: %.2f °C\nSalinity: %.1f ppt\nClarity: %d cm\nDissolved oxygen: %.2f mg/L" % [water.depth_cm, String(water.current_direction).capitalize(), water.current_cm_s, float(water.temperature_centi_c) / 100.0, float(water.salinity_deci_ppt) / 10.0, water.clarity_cm, float(water.oxygen_centi_mg_l) / 100.0]
+	var population_lines := PackedStringArray(["Ecology ledger · updated %s" % Kernel.time_text(int(kernel.world.ecology.updated_at_ms))])
+	for species in Ecology.SPECIES:
+		population_lines.append("%s: %d" % [species.replace("_", " ").capitalize(), Ecology.total(kernel.world.ecology, species)])
+	ecology_label.text = "\n".join(population_lines)
 
 func _build_layers(column: VBoxContainer) -> void:
 	column.add_child(_label("Simulation roadmap", 28, ACCENT))

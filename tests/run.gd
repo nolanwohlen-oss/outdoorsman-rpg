@@ -48,7 +48,7 @@ func _contracts() -> void:
 	bad.seed = true
 	mutations.append(bad)
 	bad = record.duplicate(true)
-	bad.schema_version = 4
+	bad.schema_version = 5
 	mutations.append(bad)
 	bad = record.duplicate(true)
 	bad.unknown_field = "must not silently discard"
@@ -75,6 +75,7 @@ func _contracts() -> void:
 		check(not k.restore(invalid).ok and k.world.to_record() == record, "Invalid restore is rejected without partial mutation.")
 	var legacy: Dictionary = record.duplicate(true)
 	legacy.erase("environment")
+	legacy.erase("ecology")
 	legacy.erase("map_version")
 	legacy.erase("travel")
 	legacy.schema_version = 1
@@ -204,6 +205,7 @@ func _save_files() -> void:
 	check(store.load_slot("manual").record == first, "Disk round trip restores the complete record.")
 	var legacy: Dictionary = first.duplicate(true)
 	legacy.erase("environment")
+	legacy.erase("ecology")
 	legacy.erase("map_version")
 	legacy.erase("travel")
 	legacy.schema_version = 1
@@ -528,6 +530,7 @@ func _environment_migrations() -> void:
 	for schema in [1, 2]:
 		var legacy := original.world.to_record()
 		legacy.erase("environment")
+		legacy.erase("ecology")
 		legacy.schema_version = schema
 		if schema == 1:
 			legacy.erase("map_version")
@@ -556,7 +559,7 @@ func _environment_migrations() -> void:
 	check(not World.migrate_record(limit).ok, "Migration never repairs invalid legacy calendar events.")
 
 func _run() -> void:
-	test_directory = "res://build/tests-%d" % OS.get_process_id()
+	test_directory = "res://build/tests-%d-%d" % [OS.get_process_id(), Time.get_ticks_usec()]
 	_contracts()
 	_environment()
 	_environment_access()

@@ -4,16 +4,26 @@ extends RefCounted
 const World = preload("res://simulation/world_state.gd")
 const Map = preload("res://simulation/testbed_map.gd")
 const CoastalEnvironment = preload("res://simulation/environment.gd")
+const Ecology = preload("res://simulation/ecology.gd")
 const MINUTE_MS := 60000
 const WAIT_MINUTES := [5, 15, 60]
 
 var world: World
+
+func _advance_layers_to(target_ms: int) -> void:
+	var next := int(world.ecology.updated_at_ms) + Ecology.STEP_MS
+	while next <= target_ms:
+		CoastalEnvironment.advance_to(world.environment, world.seed, next)
+		Ecology.advance_to(world.ecology, world.seed, next, world.environment)
+		next += Ecology.STEP_MS
+	CoastalEnvironment.advance_to(world.environment, world.seed, target_ms)
 
 func _init(initial_seed: int = 13092026) -> void:
 	world = World.new()
 	world.seed = clampi(initial_seed, 0, World.MAX_SEED)
 	world.rng_state = world.seed % (World.MAX_SEED - 1) + 1
 	world.environment = CoastalEnvironment.create(world.seed, world.game_time_ms)
+	world.ecology = Ecology.create(world.seed, world.game_time_ms)
 	for kind in ["sunrise", "sunset", "midnight"]:
 		_queue(World.next_calendar_time(kind, world.game_time_ms), kind, "")
 	_log("world_started", "New world. Seed %d. Player at sandy shore." % world.seed)
@@ -60,7 +70,7 @@ func _advance(delta_ms: int, stop_wait: bool = false) -> Dictionary:
 		var event: Dictionary = world.scheduled.pop_front()
 		world.game_time_ms = int(event.due_ms)
 		# Environmental ticks at this instant occur before action/calendar events.
-		CoastalEnvironment.advance_to(world.environment, world.seed, world.game_time_ms)
+		_advance_layers_to(world.game_time_ms)
 		world.events_processed += 1
 		_log(event.kind, event.label if not event.label.is_empty() else String(event.kind).capitalize())
 		if World.CALENDAR.has(event.kind):
@@ -70,7 +80,7 @@ func _advance(delta_ms: int, stop_wait: bool = false) -> Dictionary:
 			target = world.game_time_ms
 		# Process every event at the interruption timestamp before stopping.
 	world.game_time_ms = target
-	CoastalEnvironment.advance_to(world.environment, world.seed, target)
+	_advance_layers_to(target)
 	return {"ok": true, "advanced_ms": target - initial, "interrupted": interrupted}
 
 func advance_game_ms(delta_ms: int) -> Dictionary:
@@ -175,12 +185,7 @@ func wait_minutes(minutes: int) -> Dictionary:
 	_log("wait_started", "Safe wait requested: %d game minutes." % minutes)
 	var result := _advance(minutes * MINUTE_MS, true)
 	_log("wait_stopped" if result.interrupted else "wait_finished", "Wait advanced %d seconds%s." % [int(result.advanced_ms / 1000), "; interrupted by scheduled event" if result.interrupted else ""])
-	result.message = "Wait interrupted at scheduled event." if result.interrupted else "Wait complete."
-	return result
-
-func observe() -> Dictionary:
-	var env: Dictionary = world.environment
-	_log("observe", "At %s; %s; front %s; tide %s (%d cm); wind %.1f m/s; runoff %d/1000. CoastalEnvironment tick: %s." % [world.player_zone, light_state(), env.weather.front_state, env.tide.phase, env.tide.height_cm, float(env.weather.wind_deci_mps) / 10.0, env.runoff_permille, time_text(int(env.updated_at_ms))])
+	result.message = "Wait interrupted at scheduled …76 tokens truncated…te(), env.weather.front_state, env.tide.phase, env.tide.height_cm, float(env.weather.wind_deci_mps) / 10.0, env.runoff_permille, time_text(int(env.updated_at_ms))])
 	return {"ok": true, "message": "Observation added to the log."}
 
 func random_u31() -> int:
