@@ -78,7 +78,10 @@ jobs:
           if grep -E 'SCRIPT ERROR:|^ERROR:' build/desktop.log; then exit 1; fi
 
       - name: Capture desktop preview
-        run: timeout 60 xvfb-run -a .tools/godot/godot --path . --script tests/capture.gd
+        shell: bash
+        run: |
+          timeout 60 xvfb-run -a .tools/godot/godot --audio-driver Dummy --path . --script tests/capture.gd 2>&1 | tee build/preview.log
+          if grep -E 'SCRIPT ERROR:|^ERROR:' build/preview.log; then exit 1; fi
 
       - name: Upload Android test APK
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
