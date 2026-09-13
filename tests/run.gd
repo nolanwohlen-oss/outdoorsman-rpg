@@ -7,6 +7,7 @@ const Kernel = preload("res://simulation/kernel.gd")
 const Session = preload("res://simulation/session.gd")
 const SaveStore = preload("res://simulation/save_store.gd")
 const Map = preload("res://simulation/testbed_map.gd")
+const CoastalEnvironment = preload("res://simulation/environment.gd")
 var failures := 0
 var checks := 0
 var test_directory: String
@@ -47,7 +48,7 @@ func _contracts() -> void:
 	bad.seed = true
 	mutations.append(bad)
 	bad = record.duplicate(true)
-	bad.schema_version = 3
+	bad.schema_version = 4
 	mutations.append(bad)
 	bad = record.duplicate(true)
 	bad.unknown_field = "must not silently discard"
@@ -73,11 +74,12 @@ func _contracts() -> void:
 	for invalid in mutations:
 		check(not k.restore(invalid).ok and k.world.to_record() == record, "Invalid restore is rejected without partial mutation.")
 	var legacy: Dictionary = record.duplicate(true)
+	legacy.erase("environment")
 	legacy.erase("map_version")
 	legacy.erase("travel")
 	legacy.schema_version = 1
 	var migration := World.migrate_record(legacy)
-	check(migration.ok and migration.migrated and migration.record.schema_version == World.SCHEMA_VERSION and migration.record.travel.channel_skiff_available, "Phase 2A save migrates to the Phase 2B travel schema.")
+	check(migration.ok and migration.migrated and migration.record.schema_version == World.SCHEMA_VERSION and migration.record.travel.channel_skiff_available, "Phase 2A save migrates to the current travel/environment schema.")
 
 func _map_and_travel() -> void:
 	check(Map.validate().is_empty(), "Canonical six-zone map and reciprocal route graph validate.")
@@ -197,6 +199,7 @@ func _save_files() -> void:
 	check(store.save_slot("manual", first).ok, "First save writes verified primary bytes.")
 	check(store.load_slot("manual").record == first, "Disk round trip restores the complete record.")
 	var legacy: Dictionary = first.duplicate(true)
+	legacy.erase("environment")
 	legacy.erase("map_version")
 	legacy.erase("travel")
 	legacy.schema_version = 1
@@ -290,12 +293,16 @@ func _ui() -> void:
 	app.save_directory = test_directory.path_join("app")
 	root.add_child(app)
 	await process_frame
-	check(app.tabs.get_tab_count() == 4 and app.zone_buttons.size() == 6, "Clock, Map, Layers, Log and six zones launch.")
+	check(app.tabs.get_tab_count() == 5 and app.zone_buttons.size() == 6, "Clock, Map, Env, Layers, Log and six zones launch.")
 	var initial = app.kernel.world.to_record()
 	for zone in catalog.zones:
 		app.zone_buttons[zone.id].pressed.emit()
 		check(app.selected_zone_id == zone.id and app.inspector_title.text == zone.name, "Every zone is inspectable by touch.")
 	check(app.kernel.world.to_record() == initial, "Map inspection cannot move the player or advance simulation.")
+	app.environment_zone.item_selected.emit(0)
+	check(app.selected_zone_id == "open_water" and app.water_label.text.contains("600 cm") and app.kernel.world.to_record() == initial, "Environment zone picker displays live water without moving or mutating state.")
+	app.select_zone("elevated_camp")
+	check(app.water_label.text.contains("not applicable"), "Environment panel does not invent water at dry camp.")
 	app.select_zone("marsh_edge")
 	check(not app.move_button.disabled and app.route_label.text.contains("Foot"), "Map inspector exposes a direct foot route and enabled travel control.")
 	app.select_zone("open_water")
@@ -335,12 +342,202 @@ func _ui() -> void:
 	app._new_world()
 	check(app.kernel.world.seed == 123 and app.kernel.world.game_time_ms == World.START_MS, "New world applies the entered seed and resets the clock.")
 	check(app.saves.load_slot("manual").record == saved, "New world does not delete the manual save.")
+	app.kernel.advance_game_ms(6 * 3600000)
+	app._refresh()
+	app.select_zone("shallow_flat")
+	check(app.move_button.disabled and app.route_label.text.contains("depth") and app.weather_label.text.contains("High"), "High-tide environment and blocked travel reason agree in the UI.")
+	app.kernel.advance_game_ms(6 * 3600000)
+	app._process(0.0)
+	check(app.last_environment_tick == app.kernel.world.environment.updated_at_ms and app.weather_label.text.contains("Low"), "Tick refresh updates environment and routes while the panel is open.")
 	app.queue_free()
 	await process_frame
+
+func _environment() -> void:
+	var a := Kernel.new(42)
+	var b := Kernel.new(42)
+	var initial := a.world.environment.duplicate(true)
+	a.advance_game_ms(CoastalEnvironment.STEP_MS - 1)
+	check(a.world.environment == initial, "Environment stays constant until its exact five-minute boundary.")
+	a.advance_game_ms(1)
+	check(a.world.environment.updated_at_ms == World.START_MS + CoastalEnvironment.STEP_MS and a.world.environment != initial, "Environment advances once at the tick, not once per frame.")
+	check(a.world.rng_state == b.world.rng_state, "Weather never consumes the gameplay random stream.")
+	a = Kernel.new(42)
+	var rain_seen := false
+	var runoff_after_rain := false
+	var fronts: Dictionary = {}
+	var tide_phases: Dictionary = {}
+	var all_valid := true
+	for step in 288:
+		a.advance_game_ms(CoastalEnvironment.STEP_MS)
+		var env: Dictionary = a.world.environment
+		fronts[env.weather.front_state] = true
+		tide_phases[env.tide.phase] = true
+		rain_seen = rain_seen or env.weather.rain_deci_mm_hr > 0
+		runoff_after_rain = runoff_after_rain or (rain_seen and env.weather.rain_deci_mm_hr == 0 and env.runoff_permille > 0)
+		all_valid = all_valid and World.validate(a.world.to_record()).is_empty()
+	b.advance_game_ms(World.DAY_MS)
+	check(same(a, b), "288 environment steps equal a one-day jump in the complete world record.")
+	check(all_valid, "Every tick through a full day has valid units and coupled water records.")
+	check(fronts.size() == 4 and rain_seen, "A seeded front approaches, passes, clears and returns to fair weather with rain.")
+	check(tide_phases.size() == 4, "A full day visits low, flood, high, and ebb tide phases.")
+	check(runoff_after_rain, "Runoff persists after rain stops rather than resetting with weather.")
+	check(a.world.environment.water_by_zone.open_water.temperature_centi_c != a.world.environment.water_by_zone.shallow_flat.temperature_centi_c, "Different water-body inertia creates distinct zone temperatures.")
+	check(a.world.environment.water_by_zone.open_water.depth_cm > a.world.environment.water_by_zone.marsh_edge.depth_cm and not a.world.environment.water_by_zone.elevated_camp.water_present, "Deep water, shallow margins and dry camp are distinct.")
+	check(CoastalEnvironment.tide_at(42, 12 * 3600000).height_cm == 86 and CoastalEnvironment.tide_at(42, 18 * 3600000).height_cm == 0, "Tide matches fixed seed-42 high/low reference heights.")
+	a = Kernel.new(42)
+	a.advance_game_ms(11 * 3600000 + 123)
+	a.advance_real_us(1)
+	var checkpoint := a.world.to_record()
+	var decoded := SaveStore.decode(SaveStore.encode(checkpoint))
+	check(decoded.ok and b.restore(decoded.record).ok and same(a, b), "A rainy mid-tick save preserves environment, runoff and fractional clock exactly.")
+	var saved_water: Dictionary = a.world.environment.water_by_zone.duplicate(true)
+	a.advance_game_ms(World.DAY_MS)
+	for hour in 24:
+		b.advance_game_ms(3600000)
+	check(same(a, b), "A reloaded environment continues identically for another full day.")
+	check(checkpoint.environment.water_by_zone == saved_water, "Advancing live water cannot mutate an earlier snapshot.")
+	var different := Kernel.new(43)
+	different.advance_game_ms(6 * 3600000)
+	check(different.world.environment.tide.height_cm != CoastalEnvironment.tide_at(42, 12 * 3600000).height_cm, "Seed changes tide amplitude even when fresh low-water conditions initially match.")
+	for seed in [0, 1, 2147483647]:
+		var edge := Kernel.new(seed)
+		edge.advance_game_ms(World.DAY_MS)
+		check(World.validate(edge.world.to_record()).is_empty(), "Minimum/maximum seeds remain valid after a day.")
+	var invalid: Array = []
+	var bad := checkpoint.duplicate(true)
+	bad.environment.updated_at_ms += 1
+	invalid.append(bad)
+	bad = checkpoint.duplicate(true)
+	bad.environment.version = 2
+	invalid.append(bad)
+	bad = checkpoint.duplicate(true)
+	bad.environment.initialized_at_ms = -1
+	invalid.append(bad)
+	bad = checkpoint.duplicate(true)
+	bad.environment.runoff_permille = true
+	invalid.append(bad)
+	bad = checkpoint.duplicate(true)
+	bad.environment.weather.wind_deci_mps = INF
+	invalid.append(bad)
+	bad = checkpoint.duplicate(true)
+	bad.environment.weather.cloud_percent = -1
+	invalid.append(bad)
+	bad = checkpoint.duplicate(true)
+	bad.environment.tide.phase = "unknown"
+	invalid.append(bad)
+	bad = checkpoint.duplicate(true)
+	bad.environment.water_by_zone.open_water.salinity_deci_ppt = 12.5
+	invalid.append(bad)
+	bad = checkpoint.duplicate(true)
+	bad.environment.water_by_zone.open_water.temperature_centi_c = NAN
+	invalid.append(bad)
+	bad = checkpoint.duplicate(true)
+	bad.environment.water_by_zone.marsh_edge.erase("oxygen_centi_mg_l")
+	invalid.append(bad)
+	bad = checkpoint.duplicate(true)
+	bad.environment.water_by_zone.elevated_camp.water_present = 0
+	invalid.append(bad)
+	bad = checkpoint.duplicate(true)
+	bad.environment.weather.unknown = 1
+	invalid.append(bad)
+	bad = checkpoint.duplicate(true)
+	bad.environment.water_by_zone.erase("sandy_shore")
+	invalid.append(bad)
+	bad = checkpoint.duplicate(true)
+	bad.environment = []
+	invalid.append(bad)
+	var before := a.world.to_record()
+	for record in invalid:
+		check(not a.restore(record).ok and a.world.to_record() == before, "Malformed environment restore is rejected without partial mutation.")
+
+func _environment_access() -> void:
+	var k := Kernel.new(42)
+	k.advance_game_ms(6 * 3600000)
+	var before := k.world.to_record()
+	check(not k.move("shallow_flat").ok and k.travel_result("shallow_flat").reason.contains("depth") and k.world.to_record() == before, "High tide rejects wading with its depth reason and no state changes.")
+	check(k.move("elevated_camp").ok, "Dry camp route remains open at high tide.")
+	k.advance_game_ms(6 * 3600000)
+	check(not k.route_preview("tidal_channel", "open_water").ok and k.route_preview("tidal_channel", "open_water").reason.contains("Wind"), "Passing front closes the skiff route with a wind reason.")
+	k.advance_game_ms(12 * 3600000)
+	check(k.route_preview("sandy_shore", "shallow_flat").ok and k.route_preview("tidal_channel", "open_water").ok, "Wading and skiff routes reopen after tide/front/runoff conditions ease.")
+	var route := Map.route("sandy_shore", "shallow_flat")
+	var fixture := CoastalEnvironment.create(42, World.START_MS)
+	fixture.tide.height_cm = 35
+	fixture.water_by_zone.shallow_flat.current_cm_s = 30
+	check(CoastalEnvironment.route_block(route, fixture).is_empty(), "Wade depth/current exactly at the configured limits pass.")
+	fixture.water_by_zone.shallow_flat.current_cm_s = 31
+	check(CoastalEnvironment.route_block(route, fixture).contains("current"), "Current one cm/s beyond the limit rejects wading.")
+	fixture.water_by_zone.shallow_flat.current_cm_s = 0
+	fixture.tide.height_cm = 36
+	check(CoastalEnvironment.route_block(route, fixture).contains("depth"), "Depth one cm beyond the limit rejects wading.")
+	fixture = CoastalEnvironment.create(42, World.START_MS)
+	fixture.weather.wind_deci_mps = 120
+	var boat := Map.route("tidal_channel", "open_water")
+	check(CoastalEnvironment.route_block(boat, fixture).is_empty(), "Skiff wind exactly at the test limit passes.")
+	fixture.weather.wind_deci_mps = 121
+	check(CoastalEnvironment.route_block(boat, fixture).contains("Wind"), "Skiff wind one tenth m/s beyond the limit fails.")
+	fixture.weather.wind_deci_mps = 30
+	fixture.weather.visibility_m = 2999
+	check(CoastalEnvironment.route_block(boat, fixture).contains("Visibility"), "Poor-visibility skiff guard rejects its boundary fixture.")
+	k = Kernel.new(42)
+	var predicted := false
+	for step in 72:
+		if CoastalEnvironment.route_block(route, k.world.environment).is_empty() and not k.travel_result("shallow_flat").ok:
+			before = k.world.to_record()
+			predicted = k.travel_result("shallow_flat").reason.contains("before arrival")
+			check(not k.move("shallow_flat").ok and k.world.to_record() == before, "A crossing that would close en route is rejected atomically before departure.")
+			break
+		k.advance_game_ms(CoastalEnvironment.STEP_MS)
+	check(predicted, "Whole-trip preview catches a future closure while current conditions are still open.")
+	k = Kernel.new(42)
+	k.move("elevated_camp")
+	k.schedule_marker(8 * Kernel.MINUTE_MS, "on environment boundary", true)
+	k.wait_minutes(15)
+	check(k.world.environment.updated_at_ms == k.world.game_time_ms and World.validate(k.world.to_record()).is_empty(), "A wait interrupted on an environment tick processes that tick exactly once.")
+
+func _environment_migrations() -> void:
+	var original := Kernel.new(123)
+	original.move("elevated_camp")
+	original.wait_minutes(60)
+	original.random_u31()
+	original.advance_real_us(1)
+	original.schedule_marker(600000, "legacy pending event")
+	for schema in [1, 2]:
+		var legacy := original.world.to_record()
+		legacy.erase("environment")
+		legacy.schema_version = schema
+		if schema == 1:
+			legacy.erase("map_version")
+			legacy.erase("travel")
+		else:
+			legacy.travel.channel_skiff_available = false
+		var result := SaveStore.decode(SaveStore.encode(legacy))
+		check(result.ok and result.migrated, "Both shipped schema 1 and schema 2 save envelopes migrate.")
+		if not result.ok:
+			continue
+		var all_preserved := true
+		for key in legacy:
+			if key != "schema_version":
+				all_preserved = all_preserved and legacy[key] == result.record[key]
+		check(all_preserved, "Migration preserves every legacy clock, location, RNG, log, event and access field.")
+		check(result.record.environment.initialized_at_ms == CoastalEnvironment.tick_at(original.world.game_time_ms) and result.record.environment.runoff_permille == 0, "Legacy weather initializes at saved game time without retroactive rain or offline replay.")
+		check(not SaveStore.decode(SaveStore.encode(result.record)).migrated, "Schema 3 round trip does not reinitialize its environment.")
+		legacy.environment = {}
+		check(not World.migrate_record(legacy).ok, "Unknown old-schema fields are rejected, not laundered through migration.")
+	var limit := original.world.to_record()
+	limit.schema_version = 2
+	limit.erase("environment")
+	limit.clock.game_time_ms = World.MAX_TIME_MS
+	limit.scheduled_events.sort_custom(func(x: Dictionary, y: Dictionary) -> bool: return x.id < y.id)
+	# A malformed legacy payload must stay rejected even at the clock bound.
+	check(not World.migrate_record(limit).ok, "Migration never repairs invalid legacy calendar events.")
 
 func _run() -> void:
 	test_directory = "res://build/tests-%d" % OS.get_process_id()
 	_contracts()
+	_environment()
+	_environment_access()
+	_environment_migrations()
 	_map_and_travel()
 	_clock_and_scheduler()
 	_actions()
@@ -348,5 +545,5 @@ func _run() -> void:
 	_save_files()
 	_session_lifecycle()
 	await _ui()
-	print("Phase 2B checks: %d passed, %d failed" % [checks - failures, failures])
+	print("Phase 2C checks: %d passed, %d failed" % [checks - failures, failures])
 	quit(0 if failures == 0 else 1)

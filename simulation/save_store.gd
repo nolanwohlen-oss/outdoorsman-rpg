@@ -41,7 +41,7 @@ static func decode(text: String) -> Dictionary:
 	var migration := World.migrate_record(parser.data)
 	if not migration.ok:
 		return _failure(migration.message, migration.get("code", "invalid"))
-	return {"ok": true, "record": World.from_record(migration.record).to_record(), "migrated": migration.get("migrated", false), "message": migration.get("message", "")}
+	return {"ok": true, "record": World.from_record(migration.record).to_record(), "migrated": migration.get("migrated", false), "message": migration.get("message", "Saved world restored exactly. Clock paused.")}
 
 func path_for(slot: String) -> String:
 	return directory.path_join(slot + ".json")

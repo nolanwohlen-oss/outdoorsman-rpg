@@ -3,6 +3,7 @@ extends RefCounted
 
 const World = preload("res://simulation/world_state.gd")
 const Map = preload("res://simulation/testbed_map.gd")
+const CoastalEnvironment = preload("res://simulation/environment.gd")
 const MINUTE_MS := 60000
 const WAIT_MINUTES := [5, 15, 60]
 
@@ -12,6 +13,7 @@ func _init(initial_seed: int = 13092026) -> void:
 	world = World.new()
 	world.seed = clampi(initial_seed, 0, World.MAX_SEED)
 	world.rng_state = world.seed % (World.MAX_SEED - 1) + 1
+	world.environment = CoastalEnvironment.create(world.seed, world.game_time_ms)
 	for kind in ["sunrise", "sunset", "midnight"]:
 		_queue(World.next_calendar_time(kind, world.game_time_ms), kind, "")
 	_log("world_started", "New world. Seed %d. Player at sandy shore." % world.seed)
@@ -57,6 +59,8 @@ func _advance(delta_ms: int, stop_wait: bool = false) -> Dictionary:
 	while not world.scheduled.is_empty() and world.scheduled[0].due_ms <= target:
 		var event: Dictionary = world.scheduled.pop_front()
 		world.game_time_ms = int(event.due_ms)
+		# Environmental ticks at this instant occur before action/calendar events.
+		CoastalEnvironment.advance_to(world.environment, world.seed, world.game_time_ms)
 		world.events_processed += 1
 		_log(event.kind, event.label if not event.label.is_empty() else String(event.kind).capitalize())
 		if World.CALENDAR.has(event.kind):
@@ -66,6 +70,7 @@ func _advance(delta_ms: int, stop_wait: bool = false) -> Dictionary:
 			target = world.game_time_ms
 		# Process every event at the interruption timestamp before stopping.
 	world.game_time_ms = target
+	CoastalEnvironment.advance_to(world.environment, world.seed, target)
 	return {"ok": true, "advanced_ms": target - initial, "interrupted": interrupted}
 
 func advance_game_ms(delta_ms: int) -> Dictionary:
@@ -86,7 +91,7 @@ func advance_real_us(real_us: int) -> Dictionary:
 	return _advance(delta_ms)
 
 func move(destination: String) -> Dictionary:
-	var resolution := Map.travel_result(world.player_zone, destination, {"channel_skiff_available": world.channel_skiff_available})
+	var resolution := travel_result(destination)
 	if not resolution.ok:
 		return _failure(resolution.reason)
 	var route: Dictionary = resolution.route
@@ -100,7 +105,27 @@ func move(destination: String) -> Dictionary:
 	return {"ok": true, "route": route.duplicate(true), "message": "Moved by %s in %d game minutes." % [route.mode, int(route.minutes)]}
 
 func travel_result(destination: String) -> Dictionary:
-	return Map.travel_result(world.player_zone, destination, {"channel_skiff_available": world.channel_skiff_available})
+	return route_preview(world.player_zone, destination)
+
+func route_preview(origin: String, destination: String) -> Dictionary:
+	var result := Map.travel_result(origin, destination, {"channel_skiff_available": world.channel_skiff_available})
+	if not result.ok:
+		return result
+	var arrival := world.game_time_ms + int(result.route.minutes) * MINUTE_MS
+	if arrival > World.MAX_TIME_MS:
+		return {"ok": false, "reason": "Clock limit reached."}
+	var reason := CoastalEnvironment.route_block(result.route, world.environment)
+	if not reason.is_empty():
+		return {"ok": false, "reason": reason}
+	# Validate the whole fixed-duration trip on a copy. An inspector or failed
+	# command cannot advance real state or consume RNG. No mid-trip teleport.
+	var preview := world.environment.duplicate(true)
+	while int(preview.updated_at_ms) + CoastalEnvironment.STEP_MS <= arrival:
+		CoastalEnvironment.advance_to(preview, world.seed, int(preview.updated_at_ms) + CoastalEnvironment.STEP_MS)
+		reason = CoastalEnvironment.route_block(result.route, preview)
+		if not reason.is_empty():
+			return {"ok": false, "reason": "Would close before arrival (%s): %s" % [time_text(int(preview.updated_at_ms)), reason]}
+	return result
 
 func wait_minutes(minutes: int) -> Dictionary:
 	if world.player_zone != "elevated_camp":
@@ -116,7 +141,8 @@ func wait_minutes(minutes: int) -> Dictionary:
 	return result
 
 func observe() -> Dictionary:
-	_log("observe", "At %s; %s; %d pending events." % [world.player_zone, light_state(), world.scheduled.size()])
+	var env: Dictionary = world.environment
+	_log("observe", "At %s; %s; front %s; tide %s (%d cm); wind %.1f m/s; runoff %d/1000. Environment tick: %s." % [world.player_zone, light_state(), env.weather.front_state, env.tide.phase, env.tide.height_cm, float(env.weather.wind_deci_mps) / 10.0, env.runoff_permille, time_text(int(env.updated_at_ms))])
 	return {"ok": true, "message": "Observation added to the log."}
 
 func random_u31() -> int:

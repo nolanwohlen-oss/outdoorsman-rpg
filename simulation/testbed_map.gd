@@ -16,11 +16,11 @@ const ZONES := {
 		"habitat_tags": ["sand", "bank_access", "shoreline"], "species_ids": ["mullet", "atlantic_menhaden", "redfish"]
 	},
 	"marsh_edge": {
-		"id": "marsh_edge", "terrain": "vegetated shoreline", "exposure": "ankle-deep wade",
+		"id": "marsh_edge", "terrain": "vegetated shoreline", "exposure": "variable-depth tidal margin",
 		"habitat_tags": ["emergent_cover", "shallow_margin", "brackish_edge"], "species_ids": ["mullet", "redfish", "black_drum"]
 	},
 	"shallow_flat": {
-		"id": "shallow_flat", "terrain": "firm open tidal flat", "exposure": "shin-deep wade",
+		"id": "shallow_flat", "terrain": "firm open tidal flat", "exposure": "variable-depth tidal flat",
 		"habitat_tags": ["open_shallows", "warming_flat", "foraging_ground"], "species_ids": ["mullet", "atlantic_menhaden", "redfish", "black_drum"]
 	},
 	"tidal_channel": {
@@ -33,8 +33,8 @@ const ZONES := {
 	}
 }
 
-# Every route is reciprocal. Durations are fixed Phase 2B fixtures so traversal can be
-# tested before weather, tide/current, equipment, stamina, and pathfinding exist.
+# Every route is reciprocal. Durations remain Phase 2B fixtures. The kernel layers
+# Phase 2C environmental checks over this graph; equipment/stamina/pathfinding wait.
 const ROUTES := [
 	{"from":"elevated_camp", "to":"sandy_shore", "mode":"foot", "minutes":2, "requirement":"dry_path", "note":"Dune track"},
 	{"from":"sandy_shore", "to":"elevated_camp", "mode":"foot", "minutes":2, "requirement":"dry_path", "note":"Dune track"},

@@ -39,6 +39,11 @@ var new_world_dialog: ConfirmationDialog
 var save_blocked := false
 var autosave_game_ms: int = 0
 var last_display_second: int = -1
+var last_environment_tick: int = -1
+var environment_stamp: Label
+var weather_label: Label
+var water_label: Label
+var environment_zone: OptionButton
 
 func _ready() -> void:
 	theme = _theme()
@@ -87,6 +92,8 @@ func _process(_delta: float) -> void:
 		_refresh_clock()
 	if kernel.world.events_processed != prior_events:
 		_refresh_log()
+	if int(kernel.world.environment.updated_at_ms) != last_environment_tick:
+		select_zone(selected_zone_id)
 	if autosave_game_ms >= 180000: # 30 active real seconds at 6:1.
 		_autosave()
 
@@ -194,7 +201,7 @@ func _build_interface() -> void:
 	add_child(margin)
 	var layout := _column(margin, 8)
 	layout.add_child(_label("OUTDOORSMAN", 34))
-	layout.add_child(_label("SYSTEMS LAB  /  PHASE 2B", 20, ACCENT))
+	layout.add_child(_label("SYSTEMS LAB  /  PHASE 2C", 20, ACCENT))
 	clock_label = _label("", 30)
 	calendar_label = _label("", 21, MUTED)
 	location_label = _label("", 23, ACCENT)
@@ -206,6 +213,7 @@ func _build_interface() -> void:
 	layout.add_child(tabs)
 	_build_clock(_scroll_tab("Clock"))
 	_build_map(_scroll_tab("Map"))
+	_build_environment(_scroll_tab("Env"))
 	_build_layers(_scroll_tab("Layers"))
 	var log_column := _scroll_tab("Log")
 	log_column.add_child(_label("World event log", 28, ACCENT))
@@ -218,11 +226,11 @@ func _build_interface() -> void:
 	status_label = _label("", 21, ACCENT)
 	status_label.max_lines_visible = 4
 	layout.add_child(status_label)
-	var build := "v0.3.0 · local build"
+	var build := "v0.4.0 · local build"
 	if FileAccess.file_exists("res://config/build_info.json"):
 		var info = JSON.parse_string(FileAccess.get_file_as_string("res://config/build_info.json"))
 		if info is Dictionary:
-			build = "v0.3.0 · build %s · %s" % [info.get("number", "local"), info.get("commit", "unknown")]
+			build = "v0.4.0 · build %s · %s" % [info.get("number", "local"), info.get("commit", "unknown")]
 	layout.add_child(_label(build, 18, MUTED))
 	new_world_dialog = ConfirmationDialog.new()
 	new_world_dialog.title = "Start a new test world?"
@@ -267,7 +275,7 @@ func _build_clock(column: VBoxContainer) -> void:
 	_button(column, "New world", _request_new_world)
 
 func _build_map(column: VBoxContainer) -> void:
-	column.add_child(_label("Tap a zone. Direct links show mode, fixed test duration, and access requirement.", 22, MUTED))
+	column.add_child(_label("Tap a zone. Links check tide, current and weather for the whole trip. Scroll for travel controls.", 22, MUTED))
 	var grid := GridContainer.new()
 	grid.columns = 2
 	grid.add_theme_constant_override("h_separation", 12)
@@ -292,9 +300,47 @@ func _build_map(column: VBoxContainer) -> void:
 	column.add_child(route_label)
 	move_button = _button(column, "Move here", _move_selected)
 
+func _build_environment(column: VBoxContainer) -> void:
+	column.add_child(_label("Environment", 28, ACCENT))
+	environment_stamp = _label("", 21, MUTED)
+	column.add_child(environment_stamp)
+	weather_label = _label("", 23)
+	column.add_child(weather_label)
+	column.add_child(HSeparator.new())
+	column.add_child(_label("Inspect zone water", 26, ACCENT))
+	environment_zone = OptionButton.new()
+	environment_zone.custom_minimum_size.y = 64
+	environment_zone.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	for zone in catalog.zones:
+		environment_zone.add_item(zone.name)
+	environment_zone.item_selected.connect(func(index: int) -> void: select_zone(String(catalog.zones[index].id)))
+	column.add_child(environment_zone)
+	water_label = _label("", 23)
+	column.add_child(water_label)
+	column.add_child(_label("Read-only lab instruments, not a player forecast. Shared coastal weather; water differs by zone. Inspecting never moves you.", 21, MUTED))
+	column.add_child(_label("Synthetic 12-hour tide and 48-hour front. Rain leaves runoff; water temperature responds gradually. Not real-world safety guidance.", 21, MUTED))
+	column.add_child(_label("To test quickly: go to camp, use Clock → 60 min, then return here. No background progression. Run works in every zone if a route closes.", 21, MUTED))
+
+func _refresh_environment() -> void:
+	if environment_stamp == null:
+		return
+	var env: Dictionary = kernel.world.environment
+	var weather: Dictionary = env.weather
+	last_environment_tick = int(env.updated_at_ms)
+	environment_stamp.text = "Updated %s\nEvery 5 game minutes · shared regional weather" % Kernel.time_text(last_environment_tick)
+	weather_label.text = "Front: %s · Pressure %.1f hPa\nAir %.2f °C · Cloud %d%%\nWind %.1f m/s from %d°\nRain %.1f mm/h · Visibility %.1f km\nTide: %s · Height +%d cm\nRunoff: %d / 1000" % [String(weather.front_state).capitalize(), float(weather.pressure_deci_hpa) / 10.0, float(weather.air_temperature_centi_c) / 100.0, weather.cloud_percent, float(weather.wind_deci_mps) / 10.0, weather.wind_from_degrees, float(weather.rain_deci_mm_hr) / 10.0, float(weather.visibility_m) / 1000.0, String(env.tide.phase).capitalize(), env.tide.height_cm, env.runoff_permille]
+	for index in catalog.zones.size():
+		if catalog.zones[index].id == selected_zone_id:
+			environment_zone.select(index)
+	var water: Dictionary = env.water_by_zone[selected_zone_id]
+	if not water.water_present:
+		water_label.text = "Elevated dry ground. No water body.\nDepth, current, salinity, clarity, oxygen and water temperature: not applicable."
+	else:
+		water_label.text = "Water depth: %d cm\nCurrent: %s · %d cm/s\nWater temperature: %.2f °C\nSalinity: %.1f ppt\nClarity: %d cm\nDissolved oxygen: %.2f mg/L" % [water.depth_cm, String(water.current_direction).capitalize(), water.current_cm_s, float(water.temperature_centi_c) / 100.0, float(water.salinity_deci_ppt) / 10.0, water.clarity_cm, float(water.oxygen_centi_mg_l) / 100.0]
+
 func _build_layers(column: VBoxContainer) -> void:
 	column.add_child(_label("Simulation roadmap", 28, ACCENT))
-	column.add_child(_label("Active: clock, scheduled events, six-zone travel/habitat testbed, safe waits, and local saves.", 23))
+	column.add_child(_label("Active: clock, events, six-zone travel/habitat, weather, water, environmental route checks, safe waits and saves.", 23))
 	for layer in catalog.layers:
 		column.add_child(_label(layer.name, 25, ACCENT))
 		var detail: String = layer.description
@@ -302,6 +348,8 @@ func _build_layers(column: VBoxContainer) -> void:
 			detail += " Active in Phase 2A; fixed testbed daylight."
 		elif layer.name == "Habitat":
 			detail += " Active as zone tags and access records; no ecological simulation yet."
+		elif layer.name in ["Weather", "Water"]:
+			detail += " Active in Phase 2C as a simplified coastal systems test."
 		elif layer.name == "Persistence and audit":
 			detail += " Active for the current kernel; later layers will extend its schema."
 		else:
@@ -364,7 +412,8 @@ func select_zone(zone_id: String) -> void:
 			var record: Dictionary = Map.ZONES[zone_id]
 			var route_lines := PackedStringArray()
 			for route in Map.routes_from(zone_id):
-				route_lines.append("→ %s: %s" % [_zone_name(route.to), Map.route_text(route)])
+				var preview := kernel.route_preview(zone_id, String(route.to))
+				route_lines.append("→ %s: %s\n%s" % [_zone_name(route.to), Map.route_text(route), "OPEN" if preview.ok else "BLOCKED: " + preview.reason])
 			var species_names := PackedStringArray()
 			for species_id in record.species_ids:
 				for species in catalog.species:
@@ -383,8 +432,9 @@ func select_zone(zone_id: String) -> void:
 		move_button.disabled = save_blocked
 	else:
 		route_label.text = "Blocked: " + travel.reason
-		move_button.text = "No direct route"
+		move_button.text = "Route unavailable"
 		move_button.disabled = true
+	_refresh_environment()
 
 func _toggle_running() -> void:
 	session.set_running(not session.running and not save_blocked)

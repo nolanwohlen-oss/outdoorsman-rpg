@@ -2,9 +2,9 @@
 
 An Android outdoor survival RPG, beginning with a small laboratory for its simulation systems.
 
-**Current milestone: Phase 2B — six-zone movement and habitat testbed (v0.3.0).** The app runs a deterministic 6:1 clock with calendar boundaries, scheduled events, six-zone foot/wade/boat traversal, habitat records, safe waiting, and versioned local saves. It restores the saved world while paused. Weather, water conditions, fish populations, inventory, and survival needs remain planned.
+**Current milestone: Phase 2C — weather, water and environmental access (v0.4.0).** The app runs a deterministic 6:1 clock with calendar events, six-zone foot/wade/skiff travel, habitat records, weather, tide/current, persistent runoff/water temperature, camp waits and versioned saves. Routes check conditions through arrival. It restores saves while paused, including upgrades from Phase 2A/2B. Fish populations, inventory and survival needs remain planned.
 
-The Phase 2A delivery spans the minimum data contracts, clock, and early persistence from the longer implementation roadmap. Phase 2B adds the first real access/habitat test layer. See [Phase 2A](docs/PHASE_2A.md) and [Phase 2B](docs/PHASE_2B.md).
+The Phase 2A delivery spans the minimum contracts, clock and early persistence from the longer roadmap. Phase 2B adds map/habitat access; Phase 2C adds the first environmental integration test, not the complete weather framework. See [Phase 2A](docs/PHASE_2A.md), [Phase 2B](docs/PHASE_2B.md) and [Phase 2C contracts and limits](docs/PHASE_2C.md).
 
 ## Test on your phone
 
@@ -12,7 +12,7 @@ The Phase 2A delivery spans the minimum data contracts, clock, and early persist
 2. Open the newest successful run for `main`.
 3. Scroll to **Artifacts** and download **outdoorsman-android-debug**.
 4. Extract the downloaded ZIP in your phone's Files app and open `outdoorsman-test.apk`. Allow that app to install this APK if Android asks.
-5. Launch **Outdoorsman Systems Lab**. Use **Map** to traverse the testbed, then use **Clock** to wait, save, and load. Follow the [phone checklist](docs/PHONE_TESTING.md).
+5. Launch **Outdoorsman Systems Lab**. Use **Env** to inspect conditions, **Map** for route access, and **Clock** to wait/save/load. Follow the [phone checklist](docs/PHONE_TESTING.md).
 
 This is a development APK, not a Google Play release. No Windows PC, Google Play developer account, advertising account, or payment setup is needed for this milestone. See [phone testing](docs/PHONE_TESTING.md) for the checklist and build troubleshooting.
 

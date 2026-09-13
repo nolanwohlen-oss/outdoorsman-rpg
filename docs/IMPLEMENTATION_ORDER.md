@@ -46,4 +46,6 @@ Phase 2B completes the generic map/habitat movement test layer: all six zones ha
 
 ## Next concrete task
 
-Complete the Phase 2B phone checklist, including the full six-zone route and a save/reopen at open water. Then add weather and water as explicit data contracts that modify future travel availability/duration without breaking existing replay and save-continuation gates.
+Phase 2C adds versioned environmental records, five-minute deterministic updates, retained runoff/thermal state, read-only instruments, whole-trip access checks and legacy save migration. It implements the first weather/water test layer; the master framework's complete atmosphere and hydrology remain later work. Fixed route durations are unchanged. See `PHASE_2C.md`.
+
+Complete the Phase 2C phone checklist before beginning ecology. The next proposed slice is the five-species population/accounting and environmental-response test, scoped separately from fishing, inventory and player survival needs. Passing an automated gate does not substitute for Android device testing or mean the complete initial survival loop is playable.

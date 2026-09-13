@@ -1,17 +1,35 @@
-# Phone testing — Phase 2B (v0.3.0)
+# Phone testing — Phase 2C (v0.4.0)
 
 ## Install the update
 
 1. In your phone browser, sign into GitHub and open the repository's **Actions → Build test app**.
-2. Open the newest successful run on `main` for the Phase 2B commit.
+2. Open the newest successful run on `main` for the Phase 2C commit.
 3. Under **Artifacts**, download **outdoorsman-android-debug**. Extract the ZIP and open `outdoorsman-test.apk` in Files.
-4. Install it as an update, then launch **Outdoorsman Systems Lab**. The header must say **PHASE 2B** and the footer **v0.3.0** with the new build number.
+4. Install it as an update, then launch **Outdoorsman Systems Lab**. The header must say **PHASE 2C** and the footer **v0.4.0** with the new build number.
 
-This build starts at sandy shore, Day 1, 06:00, paused. A Phase 2A autosave should migrate and remain paused; it adds the six-zone map access state without changing your clock, location, scheduler, or history.
+A fresh world starts at sandy shore, Day 1, 06:00, paused. An existing Phase 2A/2B save must instead keep its saved time, location, access, scheduler and history. It adds the new environment at that game time, initially with zero runoff, and reports the upgrade. It must not grant offline time. **Check this before starting a new test world.**
 
-## First test: six-zone map travel
+## New Phase 2C checks: conditions, routes and continuity
 
-Leave Run off. In **Map**, inspect each zone; the panel must show terrain, exposure, habitat tags, potential species, and routes from that zone. Potential species are labels only, not active fish.
+The **Env** tab is the Environment panel. It scrolls; the zone selector and water measurements are below the regional weather. Selecting a water zone only inspects it; your actual location stays in the header.
+
+For repeatable times, start a new world with seed **13092026** using the bottom of Clock and leave Run off. New world replaces autosave but preserves your manual slot. Do not overwrite a manual save you want to keep.
+
+1. Open **Env**. At 06:00, tide is Low and conditions are Fair. Inspect Open water, Marsh edge and Elevated camp: depth/salinity should differ between water zones; camp says water is not applicable.
+2. Go to camp using Clock (**06:02**), then tap **60 min six times** (**12:02**). Open Env. Its last update should be **12:00**, with High tide and warmer water. Values only update every five game minutes.
+3. Open Map and travel to **Sandy shore** (**12:04**). Select **Shallow flat**, scroll to the travel control: it must be disabled with a crossing-depth explanation. Selecting/inspecting must not change the clock.
+4. Return to camp, then use hourly waits to reach roughly **17:00–19:00** on Day 1. Env should show the front, rain and stronger wind. In Map, inspect **Tidal channel**: its route list should mark the open-water skiff link blocked by wind. You do not have to travel offshore to inspect it.
+5. From camp, keep advancing by hours. The front clears, rain stops, runoff remains for a while and then drains. The skiff and wading links eventually reopen when their limits allow. Exact reopening depends on tide, current and runoff together.
+6. During rain, **Save**, screenshot Env's weather and a selected water zone, then wait an hour. **Load**, select that same zone again: time, runoff, weather and water values must match the saved view. The saved fingerprint must match too.
+7. Close/reopen: the same saved state returns paused. Leaving the app closed must not move the tide or weather forward.
+
+Send the build number and screenshots of **Env**, the **blocked route**, and the **saved/loaded fingerprint**. The instrument readings and route limits are synthetic test data, not real-world forecasts or safety guidance.
+
+If you remain in a water zone while conditions worsen, an exit can temporarily close. Run clock works everywhere; accelerated waits remain camp-only. Perform the fast environmental test from camp to avoid waiting offshore in real time.
+
+## Regression test: six-zone map travel
+
+For these exact times, use a **fresh 06:00 world** and leave Run off. In **Map**, inspect each zone; the panel must show terrain, exposure, habitat tags, potential species and routes. Potential species are labels only, not active fish. Later in the day, environmental closures are intentional.
 
 1. At **Sandy shore**, select **Open water**. The action must be disabled and say that no direct route exists.
 2. Select **Marsh edge** → **Travel by foot · 4 min**. The clock becomes **06:04**.
@@ -52,7 +70,7 @@ A long foreground frame can also pause the test clock with a message. Record it 
 3. Repeated **60 min** waits should cross sunset at 18:00, midnight into Day 2, and sunrise at 06:00. Each boundary should appear once in the Log.
 4. Save and reopen on Day 2. Day, time, position, and events must remain consistent.
 
-The waiting rule is only a camp test fixture. Weather/hazards, real rest/sleep, and player needs are later layers.
+The waiting rule is only a camp fixture. Weather/water now advance through waits; physiological hazards, real rest/sleep and player needs are later layers.
 
 ## New-world checks
 

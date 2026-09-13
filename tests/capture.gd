@@ -26,6 +26,32 @@ func _capture() -> void:
 	await RenderingServer.frame_post_draw
 	if root.get_texture().get_image().save_png("res://build/map-preview.png") != OK:
 		error = FAILED
+	# Rainy environment, zone water, and a real high-tide route closure.
+	app.kernel.advance_game_ms(11 * 3600000)
+	app.select_zone("marsh_edge")
+	app._refresh()
+	app.tabs.current_tab = 2
+	await process_frame
+	await RenderingServer.frame_post_draw
+	if root.get_texture().get_image().save_png("res://build/environment-preview.png") != OK:
+		error = FAILED
+	app.tabs.get_child(2).scroll_vertical = 340
+	await process_frame
+	await RenderingServer.frame_post_draw
+	if root.get_texture().get_image().save_png("res://build/water-preview.png") != OK:
+		error = FAILED
+	app.kernel = load("res://simulation/kernel.gd").new(42)
+	app.session.kernel = app.kernel
+	app.kernel.advance_game_ms(6 * 3600000)
+	app.select_zone("shallow_flat")
+	app._refresh()
+	app.tabs.current_tab = 1
+	app.tabs.get_child(1).scroll_vertical = 10000
+	await process_frame
+	await process_frame
+	await RenderingServer.frame_post_draw
+	if root.get_texture().get_image().save_png("res://build/blocked-route-preview.png") != OK:
+		error = FAILED
 	app.queue_free()
 	await process_frame
 	quit(0 if error == OK else 1)

@@ -1,8 +1,9 @@
 extends RefCounted
-## Authoritative Phase 2B record. It owns data, never a scene or a system clock.
+## Authoritative Phase 2C record. It owns data, never a scene or a system clock.
 
 const Map = preload("res://simulation/testbed_map.gd")
-const SCHEMA_VERSION := 2
+const CoastalEnvironment = preload("res://simulation/environment.gd")
+const SCHEMA_VERSION := 3
 const MAP_ID := "generic_coastal_testbed_v1"
 const DAY_MS := 86400000
 const START_MS := 21600000 # Day 1, 06:00. Fixed testbed sunrise/sunset: 06:00/18:00.
@@ -20,6 +21,7 @@ var sub_ms: int = 0 # Remainder after converting scaled real microseconds to gam
 var player_zone: String = "sandy_shore"
 # A fixed channel skiff is testbed access infrastructure, not an inventory item.
 var channel_skiff_available: bool = true
+var environment: Dictionary = {}
 var rng_state: int = 1
 var next_event_id: int = 1
 var next_log_id: int = 1
@@ -53,6 +55,7 @@ func to_record() -> Dictionary:
 		"clock": {"game_time_ms": game_time_ms, "sub_ms": sub_ms},
 		"player": {"id": "player_1", "zone_id": player_zone},
 		"travel": {"channel_skiff_available": channel_skiff_available},
+		"environment": environment.duplicate(true),
 		"random_stream": {"algorithm": "park_miller_16807_v1", "state": rng_state},
 		"next_event_id": next_event_id, "next_log_id": next_log_id,
 		"events_processed": events_processed,
@@ -60,13 +63,23 @@ func to_record() -> Dictionary:
 	}
 
 static func validate(record: Variant) -> PackedStringArray:
+	return _validate(record, SCHEMA_VERSION)
+
+static func _validate(record: Variant, version: int) -> PackedStringArray:
 	var errors := PackedStringArray()
-	if not has_keys(record, ["schema_version", "map_id", "map_version", "seed", "clock", "player", "travel", "random_stream", "next_event_id", "next_log_id", "events_processed", "scheduled_events", "history"]):
+	var keys := ["schema_version", "map_id", "seed", "clock", "player", "random_stream", "next_event_id", "next_log_id", "events_processed", "scheduled_events", "history"]
+	if version >= 2:
+		keys.append_array(["map_version", "travel"])
+	if version >= 3:
+		keys.append("environment")
+	if not has_keys(record, keys):
 		return PackedStringArray(["World record has missing or unknown fields."])
-	if not is_integer(record.schema_version, SCHEMA_VERSION, SCHEMA_VERSION):
+	if not is_integer(record.schema_version, version, version):
 		errors.append("Unsupported world schema version.")
-	if record.map_id != MAP_ID or not is_integer(record.map_version, Map.MAP_VERSION, Map.MAP_VERSION) or not is_integer(record.seed, 0, MAX_SEED):
+	if record.map_id != MAP_ID or not is_integer(record.seed, 0, MAX_SEED):
 		errors.append("Invalid map ID or seed.")
+	if version >= 2 and not is_integer(record.map_version, Map.MAP_VERSION, Map.MAP_VERSION):
+		errors.append("Invalid map version.")
 	if not has_keys(record.clock, ["game_time_ms", "sub_ms"]):
 		errors.append("Invalid clock record.")
 	elif not is_integer(record.clock.game_time_ms, START_MS, MAX_TIME_MS) or not is_integer(record.clock.sub_ms, 0, 999):
@@ -75,7 +88,7 @@ static func validate(record: Variant) -> PackedStringArray:
 		errors.append("Invalid player record.")
 	elif record.player.id != "player_1" or not record.player.zone_id in ZONES:
 		errors.append("Invalid player ID or player zone.")
-	if not has_keys(record.travel, ["channel_skiff_available"]) or typeof(record.travel.channel_skiff_available) != TYPE_BOOL:
+	if version >= 2 and (not has_keys(record.travel, ["channel_skiff_available"]) or typeof(record.travel.channel_skiff_available) != TYPE_BOOL):
 		errors.append("Invalid travel access record.")
 	if not has_keys(record.random_stream, ["algorithm", "state"]):
 		errors.append("Invalid random stream record.")
@@ -90,6 +103,8 @@ static func validate(record: Variant) -> PackedStringArray:
 		errors.append("Event records must be arrays.")
 	if not errors.is_empty():
 		return errors
+	if version >= 3:
+		errors.append_array(CoastalEnvironment.validate(record.environment, int(record.seed), int(record.clock.game_time_ms)))
 	if record.scheduled_events.size() > MAX_PENDING or record.history.size() > MAX_HISTORY or record.history.is_empty():
 		errors.append("Invalid event record count.")
 	if int(record.events_processed) + record.scheduled_events.size() != int(record.next_event_id) - 1:
@@ -150,15 +165,22 @@ static func migrate_record(record: Variant) -> Dictionary:
 		if not current_errors.is_empty():
 			return {"ok": false, "message": " ".join(current_errors), "code": "invalid"}
 		return {"ok": true, "record": record.duplicate(true), "migrated": false}
-	if is_integer(schema, 1, 1):
+	if is_integer(schema, 1, 2):
+		# Validate the old contract BEFORE adding fields; malformed/unknown fields
+		# must not be silently repaired or discarded by migration.
+		var legacy_errors := _validate(record, int(schema))
+		if not legacy_errors.is_empty():
+			return {"ok": false, "message": "Cannot migrate legacy save: " + " ".join(legacy_errors), "code": "invalid"}
 		var migrated: Dictionary = record.duplicate(true)
 		migrated.schema_version = SCHEMA_VERSION
-		migrated.map_version = Map.MAP_VERSION
-		migrated.travel = {"channel_skiff_available": true}
+		if int(schema) == 1:
+			migrated.map_version = Map.MAP_VERSION
+			migrated.travel = {"channel_skiff_available": true}
+		migrated.environment = CoastalEnvironment.create(int(record.seed), int(record.clock.game_time_ms))
 		var errors := validate(migrated)
 		if not errors.is_empty():
 			return {"ok": false, "message": "Cannot migrate legacy save: " + " ".join(errors), "code": "invalid"}
-		return {"ok": true, "record": migrated, "migrated": true, "message": "Phase 2A save migrated to the six-zone map."}
+		return {"ok": true, "record": migrated, "migrated": true, "message": "Older save upgraded. Environment initialized at saved game time; clock paused. No offline time added."}
 	return {"ok": false, "message": "Unsupported world schema; existing files were kept.", "code": "unsupported"}
 
 static func from_record(record: Dictionary) -> RefCounted:
@@ -171,6 +193,7 @@ static func from_record(record: Dictionary) -> RefCounted:
 	result.sub_ms = int(record.clock.sub_ms)
 	result.player_zone = record.player.zone_id
 	result.channel_skiff_available = bool(record.travel.channel_skiff_available)
+	result.environment = CoastalEnvironment.normalized(record.environment)
 	result.rng_state = int(record.random_stream.state)
 	result.next_event_id = int(record.next_event_id)
 	result.next_log_id = int(record.next_log_id)
