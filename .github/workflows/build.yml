@@ -39,7 +39,7 @@ jobs:
       - name: Install Godot and debug templates
         run: bash tools/install_godot.sh --templates
 
-      - name: Validate catalog and launch main scene
+      - name: Validate simulation and persistence
         run: bash tools/check.sh
 
       - name: Set up Android SDK
@@ -103,5 +103,5 @@ jobs:
           name: outdoorsman-build-checks
           path: |
             build/*.log
-            build/shell-preview.png
+            build/*-preview.png
           retention-days: 30

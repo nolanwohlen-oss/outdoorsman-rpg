@@ -1,34 +1,58 @@
-# Phone testing — Phase 1
+# Phone testing — Phase 2A (v0.2.0)
 
-## Install
+## Install the update
 
-Use Chrome or another phone browser signed into GitHub. Open the repository's **Actions** tab, select **Build test app**, and open a successful run on `main`. Download the **outdoorsman-android-debug** artifact at the bottom of the run page. Extract the ZIP and install `outdoorsman-test.apk` from the Files app.
+1. In your phone browser, sign into GitHub and open the repository's **Actions → Build test app**.
+2. Open the newest successful run on `main` for the Phase 2A commit.
+3. Under **Artifacts**, download **outdoorsman-android-debug**. Extract the ZIP and open `outdoorsman-test.apk` in Files.
+4. Install it as an update, then launch **Outdoorsman Systems Lab**. The header must say **PHASE 2A** and the footer **v0.2.0** with the new build number.
 
-If necessary, permit installation from that specific browser or Files app in Android's install prompt. A Play Store listing is not part of the test workflow. Android may scan or warn about a new development build.
+The previous Phase 1 shell had no saves. This build starts with a new world at sandy shore, Day 1, 06:00, paused. Future openings restore the most recent autosave and remain paused.
 
-The app label is **Outdoorsman Systems Lab**. It is a separate prototype package, not the final release identity.
+## First test: move, wait, save, close, load
 
-## Check this build
+Leave Run off for this test so the expected times are exact. The Clock panel scrolls to reveal Save/Load and the scheduler/seed controls.
 
-- Launch the app and read the version/build identifier at the bottom.
-- On **Map**, tap each of the six zones. The highlight, description, and connected-zone names must change together.
-- Scroll the panel to the scenario seed. Enter a number and tap **Set seed**.
-- On **Layers**, read the nine planned layers and five species names.
-- On **Log**, confirm the zone selections and seed setting were recorded.
-- Switch away and return; lock and unlock the phone; check that the interface still responds.
-- Close and relaunch. This milestone intentionally starts a fresh inspection session. No save-game system exists yet.
-- Report cropped text, taps that fail, unexpected exits, or startup errors, along with your phone model and the build identifier.
+1. Tap **Go to camp · 2 min**. Location becomes **Elevated camp** and time **Day 1, 06:02:00**.
+2. Tap **15 min**. Time becomes **06:17:00**. It remains paused.
+3. Tap **Save**. Note the time and the `State` fingerprint below Save/Load; a screenshot is sufficient.
+4. Tap **60 min**. Time becomes **07:17:00**.
+5. Tap **Load**. Time returns to **06:17:00**, location stays camp, and the loaded fingerprint matches the saved fingerprint.
+6. Open **Log**. It restores the saved move/wait history; the extra hour's events disappear.
+7. Press Home, close the app from recent apps, and reopen. It restores **06:17:00** at camp, paused. Tap **Load** to compare the manual snapshot again.
 
-This checklist verifies the shell only. It does not certify frame rate, memory, battery usage, ecological accuracy, simulation determinism, or save integrity for the later game.
+Report any changed time, location, fingerprint, missing events, or save error.
 
-## If there is no download
+## Second test: foreground, lock, resume
 
-- Wait for a running build to finish. Artifacts are uploaded only after their export succeeds.
-- If the run is red, send its run link. The failed step and log identify the build problem.
-- Artifacts expire after 30 days. The workflow supports **Run workflow** on `main` to produce a new test build.
+1. Tap **Run clock**. About ten real seconds should advance one game minute; sixty real seconds should advance six game minutes.
+2. Tap **Pause clock**. Time must freeze.
+3. Tap Run, then press Home or lock the phone. Wait at least twenty real seconds and return.
+4. The app must say **PAUSED** and show no background progress. Tap Run to resume.
 
-## Updating development builds
+A long foreground frame can also pause the test clock with a message. Record it if it happens during ordinary play.
 
-The workflow caches a development signing key to allow successive APKs to update normally. If that cache expires, a new key is generated. Android may then reject an update because the signatures differ. For this shell, uninstall the old prototype before installing the new one; this removes its local data. A durable private signing-key setup is required before save-game playtesting becomes valuable. Debug signing must never be reused for final release.
+## Third test: interrupted wait and a day boundary
 
-No passwords, access tokens, payment details, or production signing keys are required in project files.
+1. At camp with the clock paused, scroll down and tap **Interrupt next wait in 10 min**.
+2. Tap **15 min**. It should stop after exactly ten game minutes, with the interruption and stopped wait in the Log.
+3. Repeated **60 min** waits should cross sunset at 18:00, midnight into Day 2, and sunrise at 06:00. Each boundary should appear once in the Log.
+4. Save and reopen on Day 2. Day, time, position, and events must remain consistent.
+
+The waiting rule is only a camp test fixture. Weather/hazards, real rest/sleep, and player needs are later layers.
+
+## Map and new-world checks
+
+All six zones remain inspectable under Map. Inspection alone must not move the player or change time. Only sandy shore and elevated camp support **Move here · 2 min**; water access is not implemented yet.
+
+At the bottom of Clock, enter a seed and tap **New world**, then confirm. It resets to 06:00 at shore and replaces autosave. Your manual save remains available until you tap Save again. The same seed and same paused actions should produce matching saved state fingerprints.
+
+If a saved world is corrupt, the app reports recovery from the previous valid backup, which can be older. If it cannot recover or the version is unsupported, it reports the failure and preserves the files. Do not reset a valuable save while investigating a defect.
+
+## Reporting / build troubleshooting
+
+Send the build number from the footer, which step failed, the expected/actual result, and a screenshot. These phone tests finish the device gate; desktop automation cannot verify physical phone behavior.
+
+If there is no artifact, wait for the run to finish. Red runs have a failed step/log; send the run link. Artifacts expire after 30 days; **Run workflow** on `main` generates another build.
+
+The workflow currently caches the development signing key. Normal successive builds should update in place. If Android reports a signature mismatch, stop and report it: uninstalling deletes local saves. A durable private signing-key setup is still needed before longer-term save playtesting. No release signing or monetization is included.

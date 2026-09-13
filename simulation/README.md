@@ -1,9 +1,9 @@
-# Simulation boundary
+# Simulation boundary — Phase 2A
 
-Phase 1 does not implement the simulation. The presentation catalog in `data/testbed.json` is not a world save or a canonical ecology model.
+`world_state.gd` defines and validates the authoritative versioned record. `kernel.gd` owns time, calendar events, the test movement/wait commands, and seeded random draws. `session.gd` gates foreground time. `save_store.gd` handles validated, checksummed local snapshots and backups.
 
-Phase 2 introduces typed, versioned records and validation. Phase 3 introduces the authoritative 6:1 clock and scheduler. Later layers depend on these contracts.
+The kernel runs without a UI scene. The interface submits commands; it never derives separate simulation outcomes. No wall-clock date, startup time, or saved real-world timestamp grants progression. Resumes and loads begin paused and reset the process-time baseline.
 
-The kernel should use explicit state and commands, seeded random streams, stable identifiers, game timestamps, and auditable events. It must run without loading UI scenes. The UI should not independently calculate time, population changes, recovery, inventory mutations, or XP.
+`data/testbed.json` remains the presentation catalog. Map and species names do not imply implemented habitat or population records. Full units and invariants are in `docs/PHASE_2A.md`.
 
-Do not read elapsed wall-clock time to grant progress at startup, load, or Android resume. Future focus/pause handling must stop advancement and discard stale frame elapsed time. Save validation and tests must precede any claims of persistence.
+Future layers must extend these contracts explicitly, schedule changes through game time, and define migrations before changing the save schema. Keep frame partition, scheduler order, random continuation, and cross-process save tests passing.

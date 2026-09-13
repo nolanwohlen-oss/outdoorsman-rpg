@@ -32,6 +32,14 @@ This follows the approved first simulation test plan. Each phase must meet its g
 
 Dedicated Grand Isle geography, first-person controls, polished assets, hunting expansion, live services, final species tuning, real legal rules, and every monetization feature remain outside this milestone. No real-money features belong in any pre-release version.
 
+## Phase 2A delivery (user-requested coding run)
+
+Phase 2A combines the minimum contracts from Phase 2, the clock foundation from Phase 3, and early persistence from Phase 10 so the user can test state continuity on Android now. It does not mark every numbered phase between them complete.
+
+Implemented records cover world/map identity, player location, clock and fractional time, one explicit random stream, pending events, and bounded event history. See `PHASE_2A.md` for units, ownership, limits, versions, test fixtures, and gates.
+
+The current test includes only the reciprocal shore–camp path (two game minutes each way), safe camp waits, fixed daylight, and scheduler markers. All six zones remain inspectable. Habitat, weather/water, biological accounting, player vitals, quantities/items, fishing, and camping simulation still require their own contracts and implementation.
+
 ## Next concrete task
 
-Phase 2: write the data dictionary, define the authoritative records, and test fresh-world validation. Freeze clock units, ID ownership, quantity units, event ordering, random-stream state, and save-version handling before integrating changing world state.
+First complete the Phase 2A phone checklist, including background/reopen and exact save/load. Then extend the contracts and test map with access/habitat and environment data before adding weather/water and player needs. Each added layer must preserve the existing one-day replay and save-continuation gates.

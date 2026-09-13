@@ -1,0 +1,156 @@
+extends RefCounted
+## Authoritative Phase 2A record. It owns data, never a scene or a system clock.
+
+const SCHEMA_VERSION := 1
+const MAP_ID := "generic_coastal_testbed_v1"
+const DAY_MS := 86400000
+const START_MS := 21600000 # Day 1, 06:00. Fixed testbed sunrise/sunset: 06:00/18:00.
+const MAX_TIME_MS := 3153600000000 # Bounded to keep all JSON integers exactly representable.
+const MAX_SEED := 2147483647
+const MAX_HISTORY := 200
+const MAX_PENDING := 64
+const ZONES := ["open_water", "tidal_channel", "marsh_edge", "shallow_flat", "sandy_shore", "elevated_camp"]
+const CALENDAR := {"sunrise": 21600000, "sunset": 64800000, "midnight": 0}
+const LOG_KINDS := ["world_started", "observe", "move", "wait_started", "wait_finished", "wait_stopped", "scheduled", "sunrise", "sunset", "midnight", "marker", "wait_interrupt", "random_draw"]
+
+var seed: int = 13092026
+var game_time_ms: int = START_MS
+var sub_ms: int = 0 # Remainder after converting scaled real microseconds to game milliseconds.
+var player_zone: String = "sandy_shore"
+var rng_state: int = 1
+var next_event_id: int = 1
+var next_log_id: int = 1
+var events_processed: int = 0
+var scheduled: Array = []
+var history: Array = []
+
+static func is_integer(value: Variant, minimum: int, maximum: int) -> bool:
+	if typeof(value) != TYPE_INT and typeof(value) != TYPE_FLOAT:
+		return false
+	return is_finite(float(value)) and value >= minimum and value <= maximum and value == floor(value)
+
+static func has_keys(value: Variant, keys: Array) -> bool:
+	if not value is Dictionary or value.size() != keys.size():
+		return false
+	for key in keys:
+		if not value.has(key):
+			return false
+	return true
+
+static func next_calendar_time(kind: String, now_ms: int) -> int:
+	@warning_ignore("integer_division")
+	var next: int = (now_ms / DAY_MS) * DAY_MS + int(CALENDAR[kind])
+	if next <= now_ms:
+		next += DAY_MS
+	return next
+
+func to_record() -> Dictionary:
+	return {
+		"schema_version": SCHEMA_VERSION, "map_id": MAP_ID, "seed": seed,
+		"clock": {"game_time_ms": game_time_ms, "sub_ms": sub_ms},
+		"player": {"id": "player_1", "zone_id": player_zone},
+		"random_stream": {"algorithm": "park_miller_16807_v1", "state": rng_state},
+		"next_event_id": next_event_id, "next_log_id": next_log_id,
+		"events_processed": events_processed,
+		"scheduled_events": scheduled.duplicate(true), "history": history.duplicate(true)
+	}
+
+static func validate(record: Variant) -> PackedStringArray:
+	var errors := PackedStringArray()
+	if not has_keys(record, ["schema_version", "map_id", "seed", "clock", "player", "random_stream", "next_event_id", "next_log_id", "events_processed", "scheduled_events", "history"]):
+		return PackedStringArray(["World record has missing or unknown fields."])
+	if not is_integer(record.schema_version, SCHEMA_VERSION, SCHEMA_VERSION):
+		errors.append("Unsupported world schema version.")
+	if record.map_id != MAP_ID or not is_integer(record.seed, 0, MAX_SEED):
+		errors.append("Invalid map ID or seed.")
+	if not has_keys(record.clock, ["game_time_ms", "sub_ms"]):
+		errors.append("Invalid clock record.")
+	elif not is_integer(record.clock.game_time_ms, START_MS, MAX_TIME_MS) or not is_integer(record.clock.sub_ms, 0, 999):
+		errors.append("Invalid clock units or range.")
+	if not has_keys(record.player, ["id", "zone_id"]):
+		errors.append("Invalid player record.")
+	elif record.player.id != "player_1" or not record.player.zone_id in ["sandy_shore", "elevated_camp"]:
+		errors.append("Invalid player ID or inaccessible player zone.")
+	if not has_keys(record.random_stream, ["algorithm", "state"]):
+		errors.append("Invalid random stream record.")
+	elif record.random_stream.algorithm != "park_miller_16807_v1" or not is_integer(record.random_stream.state, 1, MAX_SEED - 1):
+		errors.append("Invalid random stream state.")
+	for field in ["next_event_id", "next_log_id"]:
+		if not is_integer(record[field], 1, MAX_TIME_MS):
+			errors.append("Invalid ID counter: " + field)
+	if not is_integer(record.events_processed, 0, MAX_TIME_MS):
+		errors.append("Invalid processed event count.")
+	if not record.scheduled_events is Array or not record.history is Array:
+		errors.append("Event records must be arrays.")
+	if not errors.is_empty():
+		return errors
+	if record.scheduled_events.size() > MAX_PENDING or record.history.size() > MAX_HISTORY or record.history.is_empty():
+		errors.append("Invalid event record count.")
+	if int(record.events_processed) + record.scheduled_events.size() != int(record.next_event_id) - 1:
+		errors.append("Scheduled and processed event counts do not match issued IDs.")
+	if record.history.size() != mini(int(record.next_log_id) - 1, MAX_HISTORY):
+		errors.append("History is incomplete for its sequence counter.")
+	var ids: Dictionary = {}
+	var calendar_counts := {"sunrise": 0, "sunset": 0, "midnight": 0}
+	var last_due: int = -1
+	var last_id: int = -1
+	for event in record.scheduled_events:
+		if not has_keys(event, ["id", "due_ms", "kind", "label"]):
+			errors.append("Invalid scheduled event record.")
+			continue
+		if not is_integer(event.id, 1, int(record.next_event_id) - 1) or not is_integer(event.due_ms, int(record.clock.game_time_ms) + 1, MAX_TIME_MS + DAY_MS):
+			errors.append("Invalid scheduled event ID or time.")
+			continue
+		if not event.kind is String or not event.kind in ["sunrise", "sunset", "midnight", "marker", "wait_interrupt"] or not event.label is String or event.label.length() > 160:
+			errors.append("Unknown event kind or invalid label.")
+			continue
+		if ids.has(int(event.id)) or event.due_ms < last_due or (event.due_ms == last_due and event.id <= last_id):
+			errors.append("Events must have unique IDs and be ordered by time, then ID.")
+		ids[int(event.id)] = true
+		last_due = int(event.due_ms)
+		last_id = int(event.id)
+		if CALENDAR.has(event.kind):
+			calendar_counts[event.kind] += 1
+			if event.due_ms != next_calendar_time(event.kind, int(record.clock.game_time_ms)):
+				errors.append("Calendar event is not at its next boundary.")
+	for count in calendar_counts.values():
+		if count != 1:
+			errors.append("Exactly one pending event per calendar boundary is required.")
+	last_id = 0
+	var last_time: int = -1
+	for event in record.history:
+		if not has_keys(event, ["id", "time_ms", "kind", "detail"]):
+			errors.append("Invalid history record.")
+			continue
+		if not is_integer(event.id, 1, int(record.next_log_id) - 1) or not is_integer(event.time_ms, START_MS, int(record.clock.game_time_ms)):
+			errors.append("Invalid history ID or timestamp.")
+			continue
+		if not event.kind in LOG_KINDS or not event.detail is String or event.detail.length() > 512:
+			errors.append("Invalid history kind or detail.")
+		if (last_id != 0 and event.id != last_id + 1) or event.time_ms < last_time:
+			errors.append("History must have consecutive IDs and ordered times.")
+		last_id = int(event.id)
+		last_time = int(event.time_ms)
+	if last_id != int(record.next_log_id) - 1:
+		errors.append("History does not match its sequence counter.")
+	return errors
+
+static func from_record(record: Dictionary) -> RefCounted:
+	# Validation is intentionally completed before any live world is replaced.
+	if not validate(record).is_empty():
+		return null
+	var result = load("res://simulation/world_state.gd").new()
+	result.seed = int(record.seed)
+	result.game_time_ms = int(record.clock.game_time_ms)
+	result.sub_ms = int(record.clock.sub_ms)
+	result.player_zone = record.player.zone_id
+	result.rng_state = int(record.random_stream.state)
+	result.next_event_id = int(record.next_event_id)
+	result.next_log_id = int(record.next_log_id)
+	result.events_processed = int(record.events_processed)
+	# JSON numbers arrive as floats; normalize all authoritative integer fields.
+	for entry in record.scheduled_events:
+		result.scheduled.append({"id": int(entry.id), "due_ms": int(entry.due_ms), "kind": entry.kind, "label": entry.label})
+	for entry in record.history:
+		result.history.append({"id": int(entry.id), "time_ms": int(entry.time_ms), "kind": entry.kind, "detail": entry.detail})
+	return result
