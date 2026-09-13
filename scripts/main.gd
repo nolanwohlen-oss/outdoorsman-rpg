@@ -445,8 +445,18 @@ func select_zone(zone_id: String) -> void:
 		route_label.text = "Blocked: " + travel.reason
 		move_button.text = "Route unavailable"
 		move_button.disabled = true
-		trip_button.text = "Full route unavailable"
-		trip_button.disabled = true
+		var plan := kernel.route_plan(zone_id)
+		if plan.ok:
+			var plan_names := PackedStringArray()
+			for stop in plan.path:
+				plan_names.append(_zone_name(String(stop)))
+			route_label.text = "Full route: " + " → ".join(plan_names) + " · %d min" % int(plan.minutes)
+			trip_button.text = "Travel full route · %d min" % int(plan.minutes)
+			trip_button.disabled = save_blocked
+		else:
+			trip_button.text = "Full route blocked"
+			trip_button.disabled = true
+			route_label.text += "\nFull route blocked: " + String(plan.reason)
 	_refresh_environment()
 
 func _toggle_running() -> void:

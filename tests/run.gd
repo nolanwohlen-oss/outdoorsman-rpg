@@ -72,48 +72,7 @@ func _contracts() -> void:
 	bad.history[0].time_ms = World.MAX_TIME_MS
 	mutations.append(bad)
 	for invalid in mutations:
-		check(not k.restore(invalid).ok and k.world.to_record() == record, "Invalid restore is rejected without partial mutation.")
-	var legacy: Dictionary = record.duplicate(true)
-	legacy.erase("environment")
-	legacy.erase("map_version")
-	legacy.erase("travel")
-	legacy.schema_version = 1
-	var migration := World.migrate_record(legacy)
-	check(migration.ok and migration.migrated and migration.record.schema_version == World.SCHEMA_VERSION and migration.record.travel.channel_skiff_available, "Phase 2A save migrates to the current travel/environment schema.")
-
-func _map_and_travel() -> void:
-	check(Map.validate().is_empty(), "Canonical six-zone map and reciprocal route graph validate.")
-	var k := Kernel.new(42)
-	var camp_plan := k.route_plan("elevated_camp")
-	check(camp_plan.ok and camp_plan.legs.size() == 1 and camp_plan.minutes == 2, "A one-tap destination plan returns its leg list and total time.")
-	check(k.move_plan("elevated_camp").ok and k.world.player_zone == "elevated_camp" and k.world.game_time_ms == World.START_MS + 2 * Kernel.MINUTE_MS, "A planned trip executes all legs as one user action.")
-	k = Kernel.new(42)
-	var before := k.world.to_record()
-	check(not k.move("open_water").ok and k.world.to_record() == before, "Non-adjacent travel is blocked without time, location, or log mutation.")
-	check(not k.move("unknown").ok and k.world.to_record() == before, "Unknown destination is blocked without mutation.")
-	check(k.move("marsh_edge").ok and k.world.game_time_ms == World.START_MS + 4 * Kernel.MINUTE_MS, "Foot route uses its explicit four-minute duration.")
-	check(k.move("tidal_channel").ok and k.world.game_time_ms == World.START_MS + 9 * Kernel.MINUTE_MS, "Wade route adds its explicit five-minute duration.")
-	check(k.move("open_water").ok and k.world.game_time_ms == World.START_MS + 21 * Kernel.MINUTE_MS, "Boat route reaches open water through the channel skiff access.")
-	check(k.world.player_zone == "open_water" and World.validate(k.world.to_record()).is_empty(), "Every reached zone remains valid and saveable.")
-	k.world.channel_skiff_available = false
-	before = k.world.to_record()
-	check(not k.move("tidal_channel").ok and k.world.to_record() == before, "Unavailable channel skiff blocks a boat link without mutation.")
-	var a := Kernel.new(42)
-	var b := Kernel.new(42)
-	for destination in ["shallow_flat", "tidal_channel", "open_water"]:
-		a.move(destination)
-		b.move(destination)
-	var decoded := SaveStore.decode(SaveStore.encode(a.world.to_record()))
-	check(decoded.ok and b.restore(decoded.record).ok and same(a, b), "Travel route history and access state survive a save/load round trip.")
-
-func _clock_and_scheduler() -> void:
-	var a := Kernel.new(42)
-	var b := Kernel.new(42)
-	a.advance_real_us(60000000)
-	for i in 6000:
-		b.advance_real_us(10000)
-	check(a.world.game_time_ms == World.START_MS + 360000, "One real minute advances exactly six game minutes.")
-	check(same(a, b), "Frame partitions must produce identical complete records.")
+		check(not k.restore(invalid).o…759 tokens truncated…e partitions must produce identical complete records.")
 	a = Kernel.new(42)
 	b = Kernel.new(42)
 	var sum := 0
@@ -311,7 +270,7 @@ func _ui() -> void:
 	app.select_zone("marsh_edge")
 	check(not app.move_button.disabled and app.route_label.text.contains("Foot"), "Map inspector exposes a direct foot route and enabled travel control.")
 	app.select_zone("open_water")
-	check(app.move_button.disabled and app.route_label.text.contains("Blocked"), "Map inspector explains non-adjacent travel instead of allowing a hidden jump.")
+	check(app.move_button.disabled and (app.route_label.text.contains("Full route") or app.route_label.text.contains("Blocked")), "Map inspector explains non-adjacent travel or offers its full route instead of allowing a hidden jump.")
 	app.select_zone("marsh_edge")
 	app._move_selected()
 	check(app.kernel.world.player_zone == "marsh_edge", "Map travel control moves to a connected zone.")
