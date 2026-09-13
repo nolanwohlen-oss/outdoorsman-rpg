@@ -63,6 +63,28 @@ static func routes_from(origin: String) -> Array:
 			result.append(entry.duplicate(true))
 	return result
 
+static func shortest_path(origin: String, destination: String) -> Array:
+	if not origin in ZONE_IDS or not destination in ZONE_IDS:
+		return []
+	var pending: Array = [origin]
+	var previous: Dictionary = {origin: ""}
+	while not pending.is_empty():
+		var current: String = pending.pop_front()
+		if current == destination:
+			break
+		for entry in routes_from(current):
+			if not previous.has(entry.to):
+				previous[entry.to] = current
+				pending.append(entry.to)
+	if not previous.has(destination):
+		return []
+	var path: Array = []
+	var cursor := destination
+	while cursor != "":
+		path.push_front(cursor)
+		cursor = previous[cursor]
+	return path
+
 static func travel_result(origin: String, destination: String, travel: Dictionary) -> Dictionary:
 	if not origin in ZONE_IDS or not destination in ZONE_IDS:
 		return {"ok": false, "reason": "Unknown testbed zone."}

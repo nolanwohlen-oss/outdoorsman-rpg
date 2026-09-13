@@ -127,6 +127,44 @@ func route_preview(origin: String, destination: String) -> Dictionary:
 			return {"ok": false, "reason": "Would close before arrival (%s): %s" % [time_text(int(preview.updated_at_ms)), reason]}
 	return result
 
+func route_plan(destination: String) -> Dictionary:
+	var path := Map.shortest_path(world.player_zone, destination)
+	if path.size() < 2:
+		return {"ok": false, "reason": "Choose a different destination."}
+	var legs: Array = []
+	var total := 0
+	var simulated := world.environment.duplicate(true)
+	var origin: String = path[0]
+	for index in range(1, path.size()):
+		var next: String = path[index]
+		var base := Map.travel_result(origin, next, {"channel_skiff_available": world.channel_skiff_available})
+		if not base.ok:
+			return base
+		var reason := CoastalEnvironment.route_block(base.route, simulated)
+		if not reason.is_empty():
+			return {"ok": false, "reason": "Route closes at %s: %s" % [Map.ZONES[origin].id, reason]}
+		total += int(base.route.minutes) * MINUTE_MS
+		var arrival := world.game_time_ms + total
+		var preview := simulated.duplicate(true)
+		CoastalEnvironment.advance_to(preview, world.seed, arrival)
+		reason = CoastalEnvironment.route_block(base.route, preview)
+		if not reason.is_empty():
+			return {"ok": false, "reason": "Route would close before arrival at %s: %s" % [Map.ZONES[next].id, reason]}
+		legs.append(base.route.duplicate(true))
+		simulated = preview
+		origin = next
+	return {"ok": true, "path": path, "legs": legs, "minutes": int(total / MINUTE_MS)}
+
+func move_plan(destination: String) -> Dictionary:
+	var plan := route_plan(destination)
+	if not plan.ok:
+		return plan
+	for leg in plan.legs:
+		var result := move(String(leg.to))
+		if not result.ok:
+			return result
+	return {"ok": true, "message": "Trip complete: %d game minutes across %d legs." % [plan.minutes, plan.legs.size()], "plan": plan}
+
 func wait_minutes(minutes: int) -> Dictionary:
 	if world.player_zone != "elevated_camp":
 		return _failure("Safe waiting requires elevated camp.")
@@ -142,7 +180,7 @@ func wait_minutes(minutes: int) -> Dictionary:
 
 func observe() -> Dictionary:
 	var env: Dictionary = world.environment
-	_log("observe", "At %s; %s; front %s; tide %s (%d cm); wind %.1f m/s; runoff %d/1000. Environment tick: %s." % [world.player_zone, light_state(), env.weather.front_state, env.tide.phase, env.tide.height_cm, float(env.weather.wind_deci_mps) / 10.0, env.runoff_permille, time_text(int(env.updated_at_ms))])
+	_log("observe", "At %s; %s; front %s; tide %s (%d cm); wind %.1f m/s; runoff %d/1000. CoastalEnvironment tick: %s." % [world.player_zone, light_state(), env.weather.front_state, env.tide.phase, env.tide.height_cm, float(env.weather.wind_deci_mps) / 10.0, env.runoff_permille, time_text(int(env.updated_at_ms))])
 	return {"ok": true, "message": "Observation added to the log."}
 
 func random_u31() -> int:

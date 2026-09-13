@@ -21,6 +21,7 @@ var zone_buttons: Dictionary = {}
 var inspector_title: Label
 var inspector_body: Label
 var move_button: Button
+var trip_button: Button
 var route_label: Label
 var event_log: RichTextLabel
 var seed_input: SpinBox
@@ -301,6 +302,7 @@ func _build_map(column: VBoxContainer) -> void:
 	route_label = _label("", 21, MUTED)
 	column.add_child(route_label)
 	move_button = _button(column, "Move here", _move_selected)
+	trip_button = _button(column, "Plan full trip", _plan_selected)
 	column.add_child(HSeparator.new())
 	column.add_child(inspector_body)
 
@@ -429,15 +431,22 @@ func select_zone(zone_id: String) -> void:
 		route_label.text = "Current location. Choose a linked zone to travel."
 		move_button.text = "You are here"
 		move_button.disabled = true
+		trip_button.text = "Choose a destination"
+		trip_button.disabled = true
 	elif travel.ok:
 		var route: Dictionary = travel.route
 		route_label.text = "Direct route: " + Map.route_text(route)
 		move_button.text = "Travel by %s · %d min" % [route.mode, int(route.minutes)]
 		move_button.disabled = save_blocked
+		var plan := kernel.route_plan(zone_id)
+		trip_button.text = "Travel full route · %d min" % int(plan.minutes) if plan.ok else "Full route blocked"
+		trip_button.disabled = save_blocked or not plan.ok
 	else:
 		route_label.text = "Blocked: " + travel.reason
 		move_button.text = "Route unavailable"
 		move_button.disabled = true
+		trip_button.text = "Full route unavailable"
+		trip_button.disabled = true
 	_refresh_environment()
 
 func _toggle_running() -> void:
@@ -473,6 +482,13 @@ func _move_to(destination: String) -> void:
 
 func _move_selected() -> void:
 	_move_to(selected_zone_id)
+
+func _plan_selected() -> void:
+	if _can_act():
+		var result := kernel.move_plan(selected_zone_id)
+		if result.ok:
+			selected_zone_id = kernel.world.player_zone
+		_after_action(result)
 
 func _wait(minutes: int) -> void:
 	if _can_act():

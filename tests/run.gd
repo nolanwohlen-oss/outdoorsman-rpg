@@ -84,6 +84,10 @@ func _contracts() -> void:
 func _map_and_travel() -> void:
 	check(Map.validate().is_empty(), "Canonical six-zone map and reciprocal route graph validate.")
 	var k := Kernel.new(42)
+	var camp_plan := k.route_plan("elevated_camp")
+	check(camp_plan.ok and camp_plan.legs.size() == 1 and camp_plan.minutes == 2, "A one-tap destination plan returns its leg list and total time.")
+	check(k.move_plan("elevated_camp").ok and k.world.player_zone == "elevated_camp" and k.world.game_time_ms == World.START_MS + 2 * Kernel.MINUTE_MS, "A planned trip executes all legs as one user action.")
+	k = Kernel.new(42)
 	var before := k.world.to_record()
 	check(not k.move("open_water").ok and k.world.to_record() == before, "Non-adjacent travel is blocked without time, location, or log mutation.")
 	check(not k.move("unknown").ok and k.world.to_record() == before, "Unknown destination is blocked without mutation.")
