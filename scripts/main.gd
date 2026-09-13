@@ -90,6 +90,9 @@ func _process(_delta: float) -> void:
 	autosave_game_ms += int(result.get("advanced_ms", 0))
 	if int(kernel.world.game_time_ms / 1000) != last_display_second:
 		_refresh_clock()
+		# A departure window can close BEFORE the next environmental tick when
+		# arrival reaches that tick. Keep the preview in sync with displayed time.
+		select_zone(selected_zone_id)
 	if kernel.world.events_processed != prior_events:
 		_refresh_log()
 	if int(kernel.world.environment.updated_at_ms) != last_environment_tick:

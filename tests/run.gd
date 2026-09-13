@@ -350,6 +350,23 @@ func _ui() -> void:
 	app.kernel.advance_game_ms(6 * 3600000)
 	app._process(0.0)
 	check(app.last_environment_tick == app.kernel.world.environment.updated_at_ms and app.weather_label.text.contains("Low"), "Tick refresh updates environment and routes while the panel is open.")
+	var probe := Kernel.new(42)
+	var crossing := Map.route("sandy_shore", "shallow_flat")
+	for step in 72:
+		probe.advance_game_ms(CoastalEnvironment.STEP_MS)
+		if not CoastalEnvironment.route_block(crossing, probe.world.environment).is_empty():
+			break
+	var departure_limit := probe.world.game_time_ms - int(crossing.minutes) * Kernel.MINUTE_MS
+	app.kernel = Kernel.new(42)
+	app.session.kernel = app.kernel
+	app.kernel.advance_game_ms(departure_limit - World.START_MS - 1000)
+	app.select_zone("shallow_flat")
+	app._refresh()
+	check(not app.move_button.disabled, "UI permits departure just before the whole-trip closure window.")
+	var old_tick: int = app.kernel.world.environment.updated_at_ms
+	app.kernel.advance_game_ms(1000)
+	app._process(0.0)
+	check(app.kernel.world.environment.updated_at_ms == old_tick and app.move_button.disabled and app.route_label.text.contains("before arrival"), "UI updates a departure-window closure even without a new environment tick.")
 	app.queue_free()
 	await process_frame
 
