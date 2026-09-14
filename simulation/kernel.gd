@@ -221,10 +221,10 @@ func rig_fishing(mode: String = "lure", bait_item_id: String = "") -> Dictionary
 	var terminal_id := Inventory.carried_id(world.inventory, "test_spoon" if mode == "lure" else "test_hook")
 	if rod_id.is_empty() or reel_id.is_empty() or line_id.is_empty() or terminal_id.is_empty():
 		return _failure("Carry the test rod, reel, line, and compatible terminal tackle.")
-	Inventory.initialize_tackle(world.inventory, line_id)
-	Inventory.initialize_tackle(world.inventory, reel_id)
-	if Inventory.tackle_condition(world.inventory, line_id) <= 0 or Inventory.tackle_condition(world.inventory, reel_id) <= 0:
-		return _failure("Service or replace broken line/reel at camp before rigging.")
+	for id in [rod_id, reel_id, line_id, terminal_id]:
+		Inventory.initialize_tackle(world.inventory, id)
+		if Inventory.tackle_condition(world.inventory, id) <= 0:
+			return _failure("Service or replace broken rig equipment at camp before rigging.")
 	if mode == "bait":
 		var bait: Variant = world.inventory.entries.get(bait_item_id)
 		if not bait is Dictionary or bait.kind != "cut_bait" or bait.container != "pack" or int(bait.mass_g) < 50:
@@ -283,13 +283,15 @@ func hook_fishing() -> Dictionary:
 	_log("fish_hooked", "Hook set on %s; first cue: %s." % [world.fishing.target_species, world.fishing.fish_cue])
 	return {"ok": true, "message": "Fish hooked: %s. Read the %s cue." % [world.fishing.target_species, world.fishing.fish_cue]}
 
-func fight_fishing(action: String) -> Dictionary:
+func fight_fishing(action: String, drag: String = "balanced") -> Dictionary:
 	if world.fishing.zone != world.player_zone:
 		return _failure("Return to the encounter zone or cancel fishing.")
 	if world.fishing.state != "hooked":
 		return _failure("Set a hook before fighting a fish.")
 	if action not in Fishing.FIGHT_ACTIONS:
 		return _failure("Choose give line, hold pressure, or reel in.")
+	if drag not in Fishing.DRAG_SETTINGS:
+		return _failure("Choose loose, balanced, or tight drag.")
 	if Fishing.landing_ready(world.fishing):
 		return _failure("The fish is ready to land. Retain or release it now.")
 	var link_errors := Fishing.validate_inventory_links(world.fishing, world.inventory)
@@ -303,15 +305,25 @@ func fight_fishing(action: String) -> Dictionary:
 		return _failure("Cannot start fight action from invalid world state.")
 	candidate._advance(Fishing.FIGHT_ACTION_MS)
 	var water: Dictionary = candidate.world.environment.water_by_zone[candidate.world.player_zone]
-	var result := Fishing.resolve_round(candidate.world.fishing, action, water)
+	var rod_id: String = candidate.world.fishing.rod_item_id
+	var reel_id: String = candidate.world.fishing.reel_item_id
+	var line_id: String = candidate.world.fishing.line_item_id
+	var terminal_id: String = candidate.world.fishing.terminal_item_id
+	var rod_condition := Inventory.tackle_condition(candidate.world.inventory, rod_id)
+	var line_limit := Inventory.line_load_limit(candidate.world.inventory, line_id) - int((1000 - rod_condition) / 4)
+	line_limit = clampi(line_limit, 450, Fishing.OVERLOAD_LIMIT)
+	var result := Fishing.resolve_round(candidate.world.fishing, action, water, drag, line_limit)
 	if not result.ok:
 		return result
-	var line_id: String = candidate.world.fishing.line_item_id
-	var reel_id: String = candidate.world.fishing.reel_item_id
 	var power_load := clampi(int(Fishing.fight_power(candidate.world.fishing, water) / 250), 0, 8)
-	var line_wear := 6 + clampi(int(abs(int(candidate.world.fishing.line_tension) - 500) / 50), 0, 12) + power_load
+	var tension_load := clampi(int(abs(int(candidate.world.fishing.line_tension) - 500) / 50), 0, 12)
+	var line_wear := 6 + tension_load + power_load
 	var reel_wear := 3 + power_load + (8 if action == "reel" else (4 if action == "pressure" else 2))
-	var wear := Inventory.apply_tackle_wear(candidate.world.inventory, line_id, reel_id, line_wear, reel_wear, result.status == "overload")
+	var rod_wear := 2 + power_load + (5 if action == "pressure" else 2)
+	var terminal_wear := 2 + power_load + tension_load
+	var terminal_limit := Inventory.terminal_load_limit(candidate.world.inventory, terminal_id)
+	var terminal_break := result.status == "continue" and int(candidate.world.fishing.line_tension) >= terminal_limit
+	var wear := Inventory.apply_rig_wear(candidate.world.inventory, rod_id, reel_id, line_id, terminal_id, rod_wear, reel_wear, line_wear, terminal_wear, result.status == "overload", terminal_break)
 	if not wear.ok:
 		return _failure(wear.message)
 	if result.status == "continue" and not String(wear.broken).is_empty():
@@ -327,7 +339,7 @@ func fight_fishing(action: String) -> Dictionary:
 		candidate._log("fish_lost", candidate.world.fishing.last_outcome)
 	else:
 		var ready := Fishing.landing_ready(candidate.world.fishing)
-		var detail := "%s against %s; stamina %d, tension %d, distance %d cm; line %d/1000, reel %d/1000%s." % [action.replace("_", " ").capitalize(), species, candidate.world.fishing.fish_stamina, candidate.world.fishing.line_tension, candidate.world.fishing.fish_distance_cm, wear.line, wear.reel, "; ready to land" if ready else "; next cue " + candidate.world.fishing.fish_cue]
+		var detail := "%s / %s drag against %s; stamina %d, tension %d, distance %d cm; rod %d, reel %d, line %d, terminal %d / 1000%s." % [action.replace("_", " ").capitalize(), drag, species, candidate.world.fishing.fish_stamina, candidate.world.fishing.line_tension, candidate.world.fishing.fish_distance_cm, wear.rod, wear.reel, wear.line, wear.terminal, "; ready to land" if ready else "; next cue " + candidate.world.fishing.fish_cue]
 		candidate._log("fish_fight", detail)
 		result.message = detail
 	var errors := World.validate(candidate.world.to_record())

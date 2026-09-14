@@ -56,6 +56,7 @@ var item_details: Label
 var fishing_status: Label
 var fight_buttons: Array[Button] = []
 var land_buttons: Array[Button] = []
+var selected_drag := "balanced"
 
 func _ready() -> void:
 	theme = _theme()
@@ -216,7 +217,7 @@ func _build_interface() -> void:
 	add_child(margin)
 	var layout := _column(margin, 8)
 	layout.add_child(_label("OUTDOORSMAN", 34))
-	layout.add_child(_label("SYSTEMS LAB  /  PHASE 2O", 20, ACCENT))
+	layout.add_child(_label("SYSTEMS LAB  /  PHASE 2P", 20, ACCENT))
 	clock_label = _label("", 30)
 	calendar_label = _label("", 21, MUTED)
 	location_label = _label("", 23, ACCENT)
@@ -241,11 +242,11 @@ func _build_interface() -> void:
 	status_label = _label("", 21, ACCENT)
 	status_label.max_lines_visible = 4
 	layout.add_child(status_label)
-	var build := "v0.16.0 · local build"
+	var build := "v0.17.0 · local build"
 	if FileAccess.file_exists("res://config/build_info.json"):
 		var info = JSON.parse_string(FileAccess.get_file_as_string("res://config/build_info.json"))
 		if info is Dictionary:
-			build = "v%s · build %s · %s" % [str(info.get("version", "0.16.0")), str(info.get("number", "local")).trim_suffix(".0"), info.get("commit", "unknown")]
+			build = "v%s · build %s · %s" % [str(info.get("version", "0.17.0")), str(info.get("number", "local")).trim_suffix(".0"), info.get("commit", "unknown")]
 	layout.add_child(_label(build, 18, MUTED))
 	new_world_dialog = ConfirmationDialog.new()
 	new_world_dialog.title = "Start a new test world?"
@@ -271,6 +272,11 @@ func _build_clock(column: VBoxContainer) -> void:
 	_button(column, "Prepare bait rig with selected item", _fish_rig.bind("bait"))
 	_button(column, "Cast selected rig", _fish_cast)
 	_button(column, "Set hook", _fish_hook)
+	column.add_child(_label("Drag now changes tension and fish progress. Loose protects tackle but gives distance; tight gains control at higher break risk.", 19, MUTED))
+	row = _row(column)
+	_button(row, "Loose drag", _set_drag.bind("loose"))
+	_button(row, "Balanced", _set_drag.bind("balanced"))
+	_button(row, "Tight drag", _set_drag.bind("tight"))
 	column.add_child(_label("Fight cue test: surge → give line; pull → hold pressure; slack or tired → reel in. Each choice costs 30 game seconds. Exact values below are lab diagnostics, not the final HUD.", 19, MUTED))
 	row = _row(column)
 	fight_buttons.append(_button(row, "Give line", _fish_fight.bind("give_line")))
@@ -639,9 +645,14 @@ func _fish_hook() -> void:
 	if _can_act():
 		_after_action(kernel.hook_fishing())
 
+func _set_drag(value: String) -> void:
+	if value in Fishing.DRAG_SETTINGS:
+		selected_drag = value
+		_status("Drag set to %s for the next fight choice." % value)
+
 func _fish_fight(action: String) -> void:
 	if _can_act():
-		_after_action(kernel.fight_fishing(action))
+		_after_action(kernel.fight_fishing(action, selected_drag))
 
 func _fish_land(retain: bool, method: String) -> void:
 	if _can_act():

@@ -10,7 +10,7 @@ const CONTAINERS := {"pack": 15000, "camp": 50000}
 # wood/bait, and grams for unidentified historical fish. Mass is separate.
 const DEFINITIONS := {"water_ml": [1, 1], "food_kcal": [1, 4], "firewood_units": [100, 1], "bait_units": [50, 1], "legacy_fish": [1, 1], "whole_fish": [1, 1], "cleaned_fish": [1, 1], "cooked_fish": [1, 1], "cut_bait": [1, 1], "test_rod": [300, 1], "test_spoon": [20, 1], "test_hook": [5, 1], "test_reel": [260, 1], "test_line": [50, 1]}
 const TEST_EQUIPMENT := ["test_rod", "test_spoon", "test_hook", "test_reel", "test_line"]
-const TRACKED_TACKLE := ["test_reel", "test_line"]
+const TRACKED_TACKLE := ["test_rod", "test_spoon", "test_hook", "test_reel", "test_line"]
 const PRODUCTS := ["cleaned_fish", "cooked_fish", "cut_bait"]
 
 static func use_item(record: Dictionary, id: String, action: String, zone: String) -> Dictionary:
@@ -114,6 +114,18 @@ static func initialize_tackle(record: Dictionary, id: String) -> Dictionary:
 		entry.condition = 1000
 	return {"ok": true, "condition": int(entry.condition)}
 
+static func line_load_limit(record: Dictionary, id: String) -> int:
+	var condition := tackle_condition(record, id)
+	if condition < 0:
+		return 0
+	return 550 + int(condition * 350 / 1000)
+
+static func terminal_load_limit(record: Dictionary, id: String) -> int:
+	var condition := tackle_condition(record, id)
+	if condition < 0:
+		return 0
+	return 500 + int(condition * 300 / 1000)
+
 static func apply_tackle_wear(record: Dictionary, line_id: String, reel_id: String, line_wear: int, reel_wear: int, break_line: bool = false) -> Dictionary:
 	var line_init := initialize_tackle(record, line_id)
 	var reel_init := initialize_tackle(record, reel_id)
@@ -130,6 +142,28 @@ static func apply_tackle_wear(record: Dictionary, line_id: String, reel_id: Stri
 		broken = "reel"
 	return {"ok": true, "line": int(line.condition), "reel": int(reel.condition), "broken": broken}
 
+static func apply_rig_wear(record: Dictionary, rod_id: String, reel_id: String, line_id: String, terminal_id: String, rod_wear: int, reel_wear: int, line_wear: int, terminal_wear: int, break_line: bool = false, break_terminal: bool = false) -> Dictionary:
+	for id in [rod_id, reel_id, line_id, terminal_id]:
+		var init := initialize_tackle(record, id)
+		if not init.ok:
+			return {"ok": false, "message": "Linked rig condition cannot be updated."}
+	if mini(mini(rod_wear, reel_wear), mini(line_wear, terminal_wear)) < 0:
+		return {"ok": false, "message": "Rig wear cannot be negative."}
+	var rod: Dictionary = record.entries[rod_id]
+	var reel: Dictionary = record.entries[reel_id]
+	var line: Dictionary = record.entries[line_id]
+	var terminal: Dictionary = record.entries[terminal_id]
+	rod.condition = maxi(0, int(rod.condition) - rod_wear)
+	reel.condition = maxi(0, int(reel.condition) - reel_wear)
+	line.condition = 0 if break_line else maxi(0, int(line.condition) - line_wear)
+	terminal.condition = 0 if break_terminal else maxi(0, int(terminal.condition) - terminal_wear)
+	var broken := ""
+	for pair in [["line", line], ["terminal tackle", terminal], ["rod", rod], ["reel", reel]]:
+		if int(pair[1].condition) == 0:
+			broken = String(pair[0])
+			break
+	return {"ok": true, "rod": int(rod.condition), "reel": int(reel.condition), "line": int(line.condition), "terminal": int(terminal.condition), "broken": broken}
+
 static func service_tackle(record: Dictionary, id: String) -> Dictionary:
 	var init := initialize_tackle(record, id)
 	if not init.ok:
@@ -138,8 +172,15 @@ static func service_tackle(record: Dictionary, id: String) -> Dictionary:
 	var before := int(entry.condition)
 	if before >= 1000:
 		return {"ok": false, "message": "Selected tackle is already at full condition."}
-	var restored := 300 if entry.kind == "test_line" else 250
-	var minutes := 15 if entry.kind == "test_line" else 20
+	var service := {
+		"test_line": [300, 15],
+		"test_reel": [250, 20],
+		"test_rod": [200, 25],
+		"test_spoon": [350, 10],
+		"test_hook": [350, 10],
+	}.get(entry.kind, [0, 0])
+	var restored := int(service[0])
+	var minutes := int(service[1])
 	entry.condition = mini(1000, before + restored)
 	return {"ok": true, "minutes": minutes, "before": before, "after": int(entry.condition), "message": "Serviced %s from %d to %d / 1000." % [id, before, int(entry.condition)]}
 
