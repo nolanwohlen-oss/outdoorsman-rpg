@@ -14,6 +14,7 @@ Development v0.17.0. Phase 2P deepens the existing fishing fixture without chang
 - The selected drag choice and all four condition values are written into the fight log. No hidden random durability roll is used.
 - Broken rod, reel, line or terminal tackle blocks preparation of a new rig until the item is serviced or replaced at camp.
 - Camp service/replacement now supports every tracked rig component while preserving the Phase 2O transactional guarantees.
+- The gate is validated with Godot's strict warning-as-error typing rules; the rig-causality calculations use explicit types where Variant-returning APIs are involved.
 
 ## Android phone gate
 
