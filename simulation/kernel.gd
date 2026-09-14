@@ -258,7 +258,7 @@ func land_fishing(retain: bool) -> Dictionary:
 		var available: int = int(world.ecology.populations[species].get(world.player_zone, 0))
 		if available <= 0:
 			return _failure("The fish was lost before landing.")
-		var stored := Inventory.add(world.inventory, "fish_food_g", weight)
+		var stored := Inventory.add_fish(world.inventory, species, weight, world.game_time_ms, world.player_zone)
 		if not stored.ok:
 			return _failure("The fish is too large for the available carry capacity.")
 		world.fishing.retained_count += 1
@@ -271,6 +271,12 @@ func land_fishing(retain: bool) -> Dictionary:
 	world.fishing.state = "idle"
 	_log("fish_landed", world.fishing.last_outcome.capitalize() + ".")
 	return {"ok": true, "message": "Fish %s: %s." % ["retained" if retain else "released", species]}
+
+func transfer_inventory(id: String, destination: String) -> Dictionary:
+	var result := Inventory.transfer(world.inventory, id, destination, world.player_zone)
+	if result.ok:
+		_log("observe", result.message)
+	return result
 
 func cancel_fishing() -> Dictionary:
 	if not world.fishing.state in ["cast", "hooked", "rigged"]:

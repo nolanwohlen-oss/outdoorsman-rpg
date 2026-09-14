@@ -8,6 +8,7 @@ const Session = preload("res://simulation/session.gd")
 const SaveStore = preload("res://simulation/save_store.gd")
 const Map = preload("res://simulation/testbed_map.gd")
 const CoastalEnvironment = preload("res://simulation/environment.gd")
+const Inventory = preload("res://simulation/inventory.gd")
 var failures := 0
 var checks := 0
 var test_directory: String
@@ -48,7 +49,7 @@ func _contracts() -> void:
 	bad.seed = true
 	mutations.append(bad)
 	bad = record.duplicate(true)
-	bad.schema_version = 9
+	bad.schema_version = World.SCHEMA_VERSION + 1
 	mutations.append(bad)
 	bad = record.duplicate(true)
 	bad.unknown_field = "must not silently discard"
@@ -170,10 +171,10 @@ func _actions() -> void:
 	check(not k.hook_fishing().ok, "A bite cannot be set before its deterministic window.")
 	k.advance_game_ms(15 * Kernel.MINUTE_MS)
 	check(k.hook_fishing().ok and k.world.fishing.state == "hooked", "The deterministic bite window produces a hookable encounter.")
-	var fish_food_before: int = k.world.inventory.items.fish_food_g
+	var fish_food_before: int = Inventory.quantity(k.world.inventory, "fish_food_g")
 	var fish_species: String = k.world.fishing.target_species
 	var fish_before: int = int(k.world.ecology.populations[fish_species][k.world.player_zone])
-	check(k.land_fishing(true).ok and k.world.fishing.state == "idle" and k.world.inventory.items.fish_food_g > fish_food_before and k.world.inventory.items.food_kcal == 4000 and k.world.fishing.retained_count == 1 and k.world.fishing.last_catch_weight_g >= 250 and int(k.world.ecology.populations[fish_species][k.world.player_zone]) == fish_before - 1, "Landing and retaining a fish stores raw fish weight and removes one fish from the local population.")
+	check(k.land_fishing(true).ok and k.world.fishing.state == "idle" and Inventory.quantity(k.world.inventory, "fish_food_g") > fish_food_before and Inventory.quantity(k.world.inventory, "food_kcal") == 4000 and k.world.fishing.retained_count == 1 and k.world.fishing.last_catch_weight_g >= 250 and int(k.world.ecology.populations[fish_species][k.world.player_zone]) == fish_before - 1, "Landing and retaining a fish stores raw fish weight and removes one fish from the local population.")
 	k.move_plan("elevated_camp")
 	k.schedule_marker(600000, "stop here", true)
 	k.schedule_marker(600000, "same instant")
@@ -578,22 +579,71 @@ func _environment_migrations() -> void:
 	# A malformed legacy payload must stay rejected even at the clock bound.
 	check(not World.migrate_record(limit).ok, "Migration never repairs invalid legacy calendar events.")
 
+func _inventory_records() -> void:
+	var k := Kernel.new(42)
+	check(Inventory.total_weight_g(k.world.inventory) == 4200, "Ration mass is separate from calories.")
+	var result := Inventory.add_fish(k.world.inventory, "mullet", 800, k.world.game_time_ms, k.world.player_zone)
+	check(result.ok, "An individual catch is stored.")
+	var id: String = result.id
+	var fish: Dictionary = k.world.inventory.entries[id].duplicate(true)
+	check(fish.quantity == 1 and fish.mass_g == 800 and fish.species == "mullet" and fish.origin == k.world.player_zone, "Fish record preserves identity, mass and origin.")
+	check(Inventory.quantity(k.world.inventory, "food_kcal") == 4000, "Fish never become ration calories automatically.")
+	var before := k.world.to_record()
+	check(not k.transfer_inventory(id, "camp").ok and k.world.to_record() == before, "Remote storage transfer is rejected without mutation.")
+	k.move_plan("elevated_camp")
+	check(k.transfer_inventory(id, "camp").ok and Inventory.total_weight_g(k.world.inventory) == 4200, "Camp transfer removes carried mass.")
+	check(k.world.inventory.entries[id].species == fish.species and k.world.inventory.entries[id].caught_ms == fish.caught_ms, "Transfer preserves catch provenance and identity.")
+	var loaded := Kernel.new(99)
+	check(loaded.restore(JSON.parse_string(JSON.stringify(k.world.to_record()))).ok and same(k, loaded), "Physical items and storage survive JSON save and reload.")
+	check(k.transfer_inventory(id, "pack").ok and k.world.inventory.entries[id] == fish, "Taking a catch back restores the same object record.")
+	for field in ["quantity", "mass_g", "condition", "caught_ms"]:
+		var bad := k.world.to_record()
+		bad.inventory.entries[id][field] = true
+		check(not World.validate(bad).is_empty(), "Item numeric fields reject boolean corruption.")
+	for field in ["owner", "container", "species", "kind", "origin"]:
+		var bad := k.world.to_record()
+		bad.inventory.entries[id][field] = "invalid"
+		check(not World.validate(bad).is_empty(), "Invalid item references are rejected.")
+	var bad := k.world.to_record()
+	bad.inventory.next_id = 1
+	check(not World.validate(bad).is_empty(), "Item ID sequence cannot be reused.")
+	bad = k.world.to_record()
+	bad.inventory.entries[id].caught_ms = k.world.game_time_ms + 1
+	check(not World.validate(bad).is_empty(), "Future catch times are rejected.")
+	k.transfer_inventory(id, "camp")
+	Inventory.add_fish(k.world.inventory, "mullet", 10800, k.world.game_time_ms, k.world.player_zone)
+	before = k.world.to_record()
+	check(not k.transfer_inventory(id, "pack").ok and k.world.to_record() == before, "Overweight transfer is atomic.")
+	check(not k.transfer_inventory("missing", "camp").ok, "Unknown item cannot be transferred.")
+	check(Inventory.validate(k.world.inventory).is_empty(), "Valid inventory remains valid after rejected operations.")
+	k = Kernel.new(42)
+	k.move_plan("elevated_camp")
+	for index in 5:
+		var catch_result := Inventory.add_fish(k.world.inventory, "mullet", 10000, k.world.game_time_ms, k.world.player_zone)
+		check(catch_result.ok and k.transfer_inventory(catch_result.id, "camp").ok, "Separate catches can fill camp storage up to its limit.")
+	check(k.world.inventory.entries.size() == 8 and Inventory.total_weight_g(k.world.inventory, "camp") == 50000, "Each fish retains a distinct ID in a full cache.")
+	var extra := Inventory.add_fish(k.world.inventory, "mullet", 100, k.world.game_time_ms, k.world.player_zone)
+	before = k.world.to_record()
+	check(not k.transfer_inventory(extra.id, "camp").ok and k.world.to_record() == before, "Full cache rejects transfer atomically.")
+
 func _audit_regressions() -> void:
+	_inventory_records()
 	var k := Kernel.new(42)
 	k.advance_game_ms(World.DAY_MS)
-	k.world.inventory.items.water_ml = 777
 	k.world.condition.health = 654
 	k.world.fishing.retained_count = 3
-	for version in [4, 5, 6, 7]:
+	for version in [4, 5, 6, 7, 8]:
 		var old := k.world.to_record()
 		old.schema_version = version
 		if version < 5:
 			old.erase("condition")
 			old.erase("inventory")
 		else:
-			old.inventory.version = 1
-			old.inventory.erase("capacity_g")
-			old.inventory.items.erase("fish_food_g")
+			old.inventory = {"version": 1, "items": {"water_ml": 777, "food_kcal": 4000, "firewood_units": 12, "bait_units": 0}}
+			if version == 8:
+				old.inventory.version = 2
+				old.inventory.capacity_g = 15000
+				old.inventory.items.fish_food_g = 900
 		if version < 6:
 			old.erase("fishing")
 		elif version == 6:
@@ -605,7 +655,9 @@ func _audit_regressions() -> void:
 		if migrated.ok:
 			check(migrated.record.ecology == old.ecology, "Migration preserves existing population and counters.")
 			if version >= 5:
-				check(migrated.record.condition == old.condition and migrated.record.inventory.items.water_ml == 777, "Migration preserves player condition and depleted inventory.")
+				check(migrated.record.condition == old.condition and Inventory.quantity(migrated.record.inventory, "water_ml") == 777, "Migration preserves player condition and depleted inventory.")
+			if version == 8:
+				check(Inventory.quantity(migrated.record.inventory, "legacy_fish") == 900, "Migration preserves pooled fish without inventing identities.")
 			if version == 7:
 				check(migrated.record.fishing == old.fishing, "Migration preserves encounter and catch history.")
 	k = Kernel.new(42)
@@ -616,7 +668,7 @@ func _audit_regressions() -> void:
 	check(not k.rig_fishing().ok and k.world.to_record() == before, "Re-rigging cannot overwrite an active encounter.")
 	k.advance_game_ms(15 * Kernel.MINUTE_MS)
 	k.hook_fishing()
-	k.world.inventory.items.fish_food_g = 7800
+	Inventory.add_fish(k.world.inventory, "mullet", 10800, k.world.game_time_ms, k.world.player_zone)
 	before = k.world.to_record()
 	check(not k.land_fishing(true).ok and k.world.to_record() == before, "Full inventory rejects retention without changing fish, counters, or vitals.")
 	check(k.land_fishing(false).ok, "A fish can still be released when inventory is full.")

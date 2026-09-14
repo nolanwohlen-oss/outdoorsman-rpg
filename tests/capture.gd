@@ -14,6 +14,17 @@ func _capture() -> void:
 	var picture := root.get_texture().get_image()
 	DirAccess.make_dir_recursive_absolute("res://build")
 	var error := picture.save_png("res://build/shell-preview.png")
+	app.tabs.current_tab = 3
+	load("res://simulation/inventory.gd").add_fish(app.kernel.world.inventory, "mullet", 800, app.kernel.world.game_time_ms, app.kernel.world.player_zone)
+	app._refresh()
+	app.item_picker.select(app.item_picker.item_count - 1)
+	app._refresh_item_details()
+	await process_frame
+	await process_frame
+	await RenderingServer.frame_post_draw
+	if root.get_texture().get_image().save_png("res://build/inventory-preview.png") != OK:
+		error = FAILED
+	app.tabs.current_tab = 0
 	app._move_to("elevated_camp")
 	app._wait(15)
 	app._save_manual()

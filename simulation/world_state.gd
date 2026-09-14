@@ -7,7 +7,7 @@ const Ecology = preload("res://simulation/ecology.gd")
 const Condition = preload("res://simulation/condition.gd")
 const Inventory = preload("res://simulation/inventory.gd")
 const Fishing = preload("res://simulation/fishing.gd")
-const SCHEMA_VERSION := 8
+const SCHEMA_VERSION := 9
 const MAP_ID := "generic_coastal_testbed_v1"
 const DAY_MS := 86400000
 const START_MS := 21600000 # Day 1, 06:00. Fixed testbed sunrise/sunset: 06:00/18:00.
@@ -126,8 +126,10 @@ static func _validate(record: Variant, version: int) -> PackedStringArray:
 		errors.append_array(Ecology.validate(record.ecology, int(record.seed), int(record.clock.game_time_ms)))
 	if version >= 5:
 		errors.append_array(Condition.validate(record.condition, int(record.clock.game_time_ms)))
-		if version >= 8:
-			errors.append_array(Inventory.validate(record.inventory))
+		if version >= 9:
+			errors.append_array(Inventory.validate(record.inventory, int(record.clock.game_time_ms)))
+		elif version == 8:
+			errors.append_array(Inventory.validate_v2(record.inventory))
 		else:
 			errors.append_array(Inventory.validate_legacy(record.inventory))
 	if version >= 6:
@@ -192,7 +194,7 @@ static func migrate_record(record: Variant) -> Dictionary:
 		if not current_errors.is_empty():
 			return {"ok": false, "message": " ".join(current_errors), "code": "invalid"}
 		return {"ok": true, "record": record.duplicate(true), "migrated": false}
-	if is_integer(schema, 1, 7):
+	if is_integer(schema, 1, 8):
 		# Validate the old contract BEFORE adding fields; malformed/unknown fields
 		# must not be silently repaired or discarded by migration.
 		var legacy_errors := _validate(record, int(schema))
@@ -211,9 +213,7 @@ static func migrate_record(record: Variant) -> Dictionary:
 			migrated.condition = Condition.create(int(record.clock.game_time_ms))
 			migrated.inventory = Inventory.create()
 		else:
-			migrated.inventory.version = Inventory.VERSION
-			migrated.inventory.capacity_g = Inventory.CAPACITY_G
-			migrated.inventory.items.fish_food_g = 0
+			migrated.inventory = Inventory.migrate(record.inventory)
 		if int(schema) < 6:
 			migrated.fishing = Fishing.create()
 		elif int(schema) == 6:
