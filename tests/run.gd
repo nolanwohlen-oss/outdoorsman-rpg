@@ -858,7 +858,7 @@ func _phase_2m_fight_gate() -> void:
 	overload.world.fishing.line_tension = 500
 	start = overload.world.game_time_ms
 	var overload_result := overload.fight_fishing("pressure")
-	var overload_is_physical_failure := overload_result.status in ["tackle_failure", "hook_pull"]
+	var overload_is_physical_failure: bool = overload_result.status in ["tackle_failure", "hook_pull"]
 	check(overload_result.ok and overload_is_physical_failure and overload.world.game_time_ms == start + Fishing.FIGHT_ACTION_MS and overload.world.fishing.state == "idle" and overload.world.fishing.lost_count == 1, "Pressuring into a surge causes a timed, explicit weakest-link failure.")
 	check(int(overload.world.ecology.populations[overload_species][overload.world.player_zone]) == overload_population, "A weakest-link failure leaves the hooked fish in the ecology population.")
 	if overload_result.status == "tackle_failure":
