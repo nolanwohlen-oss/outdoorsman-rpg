@@ -8,6 +8,7 @@ const Ecology = preload("res://simulation/ecology.gd")
 const Condition = preload("res://simulation/condition.gd")
 const Inventory = preload("res://simulation/inventory.gd")
 const Fishing = preload("res://simulation/fishing.gd")
+const Skills = preload("res://simulation/skills.gd")
 const MINUTE_MS := 60000
 const WAIT_MINUTES := [5, 15, 60]
 
@@ -32,6 +33,7 @@ func _init(initial_seed: int = 13092026) -> void:
 	world.condition = Condition.create(world.game_time_ms)
 	world.inventory = Inventory.create()
 	world.fishing = Fishing.create()
+	world.skills = Skills.create()
 	for kind in ["sunrise", "sunset", "midnight"]:
 		_queue(World.next_calendar_time(kind, world.game_time_ms), kind, "")
 	_log("world_started", "New world. Seed %d. Player at sandy shore." % world.seed)
@@ -51,6 +53,17 @@ func _log(kind: String, detail: String) -> void:
 	world.next_log_id += 1
 	if world.history.size() > World.MAX_HISTORY:
 		world.history.pop_front()
+
+func _award_skill(action_id: String) -> Dictionary:
+	var award: Dictionary = Skills.award(world.skills, action_id)
+	if not award.ok:
+		return award
+	if int(award.xp_awarded) > 0:
+		var level_detail := ""
+		if int(award.new_level) != int(award.old_level):
+			level_detail = " · level %d→%d" % [award.old_level, award.new_level]
+		_log("skill_xp", "%s +%d XP · %d cumulative%s · source %s." % [award.label, award.xp_awarded, award.cumulative_xp, level_detail, action_id])
+	return award
 
 func _queue(due_ms: int, kind: String, label: String) -> int:
 	var id := world.next_event_id
@@ -268,6 +281,10 @@ func cast_fishing() -> Dictionary:
 	world.fishing.state = "cast"
 	world.fishing.target_species = weighted_choices[posmod(world.seed + world.game_time_ms, weighted_choices.size())]
 	world.fishing.bite_due_ms = world.game_time_ms + Fishing.BITE_DELAY_MS
+	var rig_signature := "%s|%s|%s|%s|%s" % [world.fishing.rod_item_id, world.fishing.reel_item_id, world.fishing.line_item_id, world.fishing.terminal_item_id, world.fishing.rig_mode]
+	if Skills.rig_signature_is_new(world.skills, rig_signature):
+		Skills.remember_rig_signature(world.skills, rig_signature)
+		_award_skill("fishing_rig_functional")
 	_log("fishing_cast", "%s cast into %s; test bite window opens in 2 game minutes." % [world.fishing.rig_mode.capitalize(), world.player_zone])
 	return {"ok": true, "message": "Cast complete. Check for a bite after 2 game minutes."}
 
@@ -285,6 +302,8 @@ func hook_fishing() -> Dictionary:
 	world.fishing.last_catch_weight_g = 250 + posmod(world.seed + world.game_time_ms + world.player_zone.length() * 31, 1750)
 	Fishing.start_fight(world.fishing, world.environment.water_by_zone[world.player_zone])
 	_log("fish_hooked", "Hook set on %s; first cue: %s." % [world.fishing.target_species, world.fishing.fish_cue])
+	_award_skill("fishing_cast_purposeful")
+	_award_skill("fishing_hookset")
 	return {"ok": true, "message": "Fish hooked: %s. Read the %s cue." % [world.fishing.target_species, world.fishing.fish_cue]}
 
 func fight_fishing(action: String, drag: String = "balanced") -> Dictionary:
@@ -319,6 +338,9 @@ func fight_fishing(action: String, drag: String = "balanced") -> Dictionary:
 	var terminal_limit: int = Inventory.terminal_load_limit(candidate.world.inventory, terminal_id)
 	var overload_limit: int = mini(line_limit, terminal_limit)
 	var overload_component := "terminal tackle" if terminal_limit < line_limit else "line"
+	var cue_before := String(candidate.world.fishing.fish_cue)
+	var expected_action: String = {"surge": "give_line", "pull": "pressure", "slack": "reel", "tired": "reel"}.get(cue_before, "")
+	var correct_control := action == expected_action
 	var result := Fishing.resolve_round(candidate.world.fishing, action, water, drag, overload_limit)
 	if not result.ok:
 		return result
@@ -352,6 +374,8 @@ func fight_fishing(action: String, drag: String = "balanced") -> Dictionary:
 		var detail := "%s / %s drag against %s; stamina %d, tension %d, distance %d cm; rod %d, reel %d, line %d, terminal %d / 1000%s." % [action.replace("_", " ").capitalize(), drag, species, candidate.world.fishing.fish_stamina, candidate.world.fishing.line_tension, candidate.world.fishing.fish_distance_cm, wear.rod, wear.reel, wear.line, wear.terminal, "; ready to land" if ready else "; next cue " + candidate.world.fishing.fish_cue]
 		candidate._log("fish_fight", detail)
 		result.message = detail
+	if correct_control:
+		candidate._award_skill("fishing_fight_control")
 	var errors := World.validate(candidate.world.to_record())
 	if not errors.is_empty():
 		return _failure("Fight action validation failed; world unchanged.")
@@ -403,6 +427,7 @@ func land_fishing(retain: bool, method: String = "hand") -> Dictionary:
 	candidate.world.fishing.last_outcome = ("retained " if retain else "released ") + "%s (%dg, %s handling, condition %d/1000)" % [species, weight, method, handling_condition]
 	Fishing.clear_active(candidate.world.fishing)
 	candidate._log("fish_landed", candidate.world.fishing.last_outcome.capitalize() + ".")
+	candidate._award_skill("fishing_land_ordinary")
 	var errors := World.validate(candidate.world.to_record())
 	if not errors.is_empty():
 		return _failure("Landing validation failed; world unchanged.")

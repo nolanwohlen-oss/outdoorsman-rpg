@@ -9,6 +9,7 @@ const Map = preload("res://simulation/testbed_map.gd")
 const Ecology = preload("res://simulation/ecology.gd")
 const Inventory = preload("res://simulation/inventory.gd")
 const Fishing = preload("res://simulation/fishing.gd")
+const Skills = preload("res://simulation/skills.gd")
 const TEXT := Color("e8eee2")
 const MUTED := Color("a8bcb3")
 const ACCENT := Color("d8bd83")
@@ -50,6 +51,7 @@ var water_label: Label
 var ecology_label: Label
 var environment_zone: OptionButton
 var condition_label: Label
+var skills_label: Label
 var inventory_label: Label
 var item_picker: OptionButton
 var item_details: Label
@@ -217,7 +219,7 @@ func _build_interface() -> void:
 	add_child(margin)
 	var layout := _column(margin, 8)
 	layout.add_child(_label("OUTDOORSMAN", 34))
-	layout.add_child(_label("SYSTEMS LAB  /  PHASE 2P", 20, ACCENT))
+	layout.add_child(_label("SYSTEMS LAB  /  PHASE 2Q", 20, ACCENT))
 	clock_label = _label("", 30)
 	calendar_label = _label("", 21, MUTED)
 	location_label = _label("", 23, ACCENT)
@@ -242,11 +244,11 @@ func _build_interface() -> void:
 	status_label = _label("", 21, ACCENT)
 	status_label.max_lines_visible = 4
 	layout.add_child(status_label)
-	var build := "v0.17.0 · local build"
+	var build := "v0.18.0 · local build"
 	if FileAccess.file_exists("res://config/build_info.json"):
 		var info = JSON.parse_string(FileAccess.get_file_as_string("res://config/build_info.json"))
 		if info is Dictionary:
-			build = "v%s · build %s · %s" % [str(info.get("version", "0.17.0")), str(info.get("number", "local")).trim_suffix(".0"), info.get("commit", "unknown")]
+			build = "v%s · build %s · %s" % [str(info.get("version", "0.18.0")), str(info.get("number", "local")).trim_suffix(".0"), info.get("commit", "unknown")]
 	layout.add_child(_label(build, 18, MUTED))
 	new_world_dialog = ConfirmationDialog.new()
 	new_world_dialog.title = "Start a new test world?"
@@ -393,6 +395,10 @@ func _build_layers(column: VBoxContainer) -> void:
 	column.add_child(_label("Player condition", 28, ACCENT))
 	condition_label = _label("", 23)
 	column.add_child(condition_label)
+	column.add_child(_label("Angling and Fisheries", 28, ACCENT))
+	skills_label = _label("", 21)
+	column.add_child(skills_label)
+	column.add_child(_label("Phase 2Q awards Base XP only from completed qualifying actions. Intermediate level thresholds are provisional test interpolation between the canonical anchors. Passive inspection and elapsed time do not create skill XP.", 19, MUTED))
 	column.add_child(_label("Inventory and camp storage", 28, ACCENT))
 	inventory_label = _label("", 23)
 	column.add_child(inventory_label)
@@ -415,7 +421,7 @@ func _build_layers(column: VBoxContainer) -> void:
 	column.add_child(_label("Transfers require camp. Select any item to inspect it. Fish remain resources, not ration calories. Rod, reel, line and terminal-tackle condition now wear during fights; service preserves identity, replacement creates a new item ID. Replacement cost is a test placeholder until economy exists.", 20, MUTED))
 	column.add_child(HSeparator.new())
 	column.add_child(_label("Simulation roadmap", 28, ACCENT))
-	column.add_child(_label("Active prototypes: clock, travel, weather/water, population ledger, condition, fishing, physical item records, pack/cache storage and saves. These are simplified test layers.", 23))
+	column.add_child(_label("Active prototypes: clock, travel, weather/water, population ledger, condition, fishing, Angling XP, physical item records, pack/cache storage and saves. These are simplified test layers.", 23))
 	for layer in catalog.layers:
 		column.add_child(_label(layer.name, 25, ACCENT))
 		var detail: String = layer.description
@@ -482,6 +488,11 @@ func _refresh() -> void:
 	if condition_label != null:
 		var c: Dictionary = kernel.world.condition
 		condition_label.text = "Hydration %d/1000 · Energy %d/1000\nExposure %d/1000 · Sleep debt %d/1000\nHealth %d/1000 · Updated %s" % [c.hydration, c.energy, c.exposure, c.sleep_debt, c.health, Kernel.time_text(int(c.updated_at_ms))]
+		var skill_lines := PackedStringArray(["Derived Angling base: L%d · internal %.2f" % [Skills.displayed_base_level(kernel.world.skills), Skills.base_average(kernel.world.skills)]])
+		for id in Skills.SUBSKILLS:
+			var progress: Dictionary = Skills.progress(kernel.world.skills, id)
+			skill_lines.append("%s\nL%d · %d XP · next %d · %d remaining" % [progress.label, progress.level, progress.xp, progress.next_xp, progress.remaining])
+		skills_label.text = "\n".join(skill_lines)
 		inventory_label.text = "Pack %d / 15000 g\nCamp cache %d / 50000 g\nPack ration energy %d kcal" % [Inventory.total_weight_g(kernel.world.inventory), Inventory.total_weight_g(kernel.world.inventory, "camp"), Inventory.quantity(kernel.world.inventory, "food_kcal")]
 		_refresh_inventory()
 

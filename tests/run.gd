@@ -95,6 +95,7 @@ func _contracts() -> void:
 	legacy.erase("inventory")
 	legacy.erase("map_version")
 	legacy.erase("travel")
+	legacy.erase("skills")
 	legacy.schema_version = 1
 	var migration := World.migrate_record(legacy)
 	check(migration.ok and migration.migrated and migration.record.schema_version == World.SCHEMA_VERSION and migration.record.travel.channel_skiff_available, "Phase 2A save migrates to the current travel/environment schema.")
@@ -245,6 +246,7 @@ func _save_files() -> void:
 	legacy.erase("fishing")
 	legacy.erase("map_version")
 	legacy.erase("travel")
+	legacy.erase("skills")
 	legacy.schema_version = 1
 	var migrated := SaveStore.decode(SaveStore.encode(legacy))
 	check(migrated.ok and migrated.migrated and migrated.record.player.zone_id == "sandy_shore", "Legacy save envelope migrates through the save store without losing location.")
@@ -588,6 +590,7 @@ func _environment_migrations() -> void:
 		legacy.environment = {}
 		check(not World.migrate_record(legacy).ok, "Unknown old-schema fields are rejected, not laundered through migration.")
 	var limit := original.world.to_record()
+	limit.erase("skills")
 	limit.schema_version = 2
 	limit.erase("environment")
 	limit.clock.game_time_ms = World.MAX_TIME_MS
@@ -699,6 +702,7 @@ func _fish_uses() -> void:
 	check(cast_result.ok and int(k.world.inventory.entries[bait_id].mass_g) == bait_mass - 50 and int(k.world.inventory.entries[first_bait_id].mass_g) == first_bait_mass, "Casting consumes 50 g from exactly the selected bait item.")
 	check(k.cancel_fishing().ok and k.world.fishing.bait_item_id == "" and k.world.fishing.rod_item_id == "" and k.world.fishing.terminal_item_id == "" and k.world.fishing.reel_item_id == "" and k.world.fishing.line_item_id == "", "Bait encounter cancellation clears all active item links.")
 	var legacy := k.world.to_record()
+	legacy.erase("skills")
 	legacy.schema_version = 9
 	legacy.inventory.version = 3
 	legacy.fishing.version = 1
@@ -757,6 +761,7 @@ func _fishing_equipment_gate() -> void:
 	check(k.cancel_fishing().ok, "The compatibility fixture can return to an idle valid state.")
 
 	var legacy10 := Kernel.new(91).world.to_record()
+	legacy10.erase("skills")
 	legacy10.schema_version = 10
 	legacy10.inventory.version = 4
 	legacy10.fishing.version = 1
@@ -779,6 +784,7 @@ func _fishing_equipment_gate() -> void:
 	broken_bait_link.fishing.bait_item_id = ""
 	check(not World.validate(broken_bait_link).is_empty(), "An active bait rig cannot lose its canonical selected-item identity.")
 	var legacy11 := bait_world.world.to_record()
+	legacy11.erase("skills")
 	legacy11.schema_version = 11
 	legacy11.inventory.version = 5
 	legacy11.fishing.version = 2
@@ -803,6 +809,7 @@ func _hooked_fixture(seed: int = 42) -> Kernel:
 
 func _downgrade_to_schema_12(record: Dictionary) -> Dictionary:
 	var legacy := record.duplicate(true)
+	legacy.erase("skills")
 	legacy.schema_version = 12
 	legacy.inventory.version = 6
 	for id in legacy.inventory.entries.keys():

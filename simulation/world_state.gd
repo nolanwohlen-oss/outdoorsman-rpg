@@ -7,7 +7,8 @@ const Ecology = preload("res://simulation/ecology.gd")
 const Condition = preload("res://simulation/condition.gd")
 const Inventory = preload("res://simulation/inventory.gd")
 const Fishing = preload("res://simulation/fishing.gd")
-const SCHEMA_VERSION := 14
+const Skills = preload("res://simulation/skills.gd")
+const SCHEMA_VERSION := 15
 const MAP_ID := "generic_coastal_testbed_v1"
 const DAY_MS := 86400000
 const START_MS := 21600000 # Day 1, 06:00. Fixed testbed sunrise/sunset: 06:00/18:00.
@@ -17,7 +18,7 @@ const MAX_HISTORY := 200
 const MAX_PENDING := 64
 const ZONES := Map.ZONE_IDS
 const CALENDAR := {"sunrise": 21600000, "sunset": 64800000, "midnight": 0}
-const LOG_KINDS := ["world_started", "observe", "move", "wait_started", "wait_finished", "wait_stopped", "scheduled", "sunrise", "sunset", "midnight", "marker", "wait_interrupt", "random_draw", "fishing_rigged", "fishing_cast", "fish_hooked", "fish_fight", "fish_lost", "fish_landed"]
+const LOG_KINDS := ["world_started", "observe", "move", "wait_started", "wait_finished", "wait_stopped", "scheduled", "sunrise", "sunset", "midnight", "marker", "wait_interrupt", "random_draw", "fishing_rigged", "fishing_cast", "fish_hooked", "fish_fight", "fish_lost", "fish_landed", "skill_xp"]
 
 var seed: int = 13092026
 var game_time_ms: int = START_MS
@@ -30,6 +31,7 @@ var ecology: Dictionary = {}
 var condition: Dictionary = {}
 var inventory: Dictionary = {}
 var fishing: Dictionary = {}
+var skills: Dictionary = {}
 var rng_state: int = 1
 var next_event_id: int = 1
 var next_log_id: int = 1
@@ -67,6 +69,7 @@ func to_record() -> Dictionary:
 		"ecology": ecology.duplicate(true),
 		"condition": condition.duplicate(true), "inventory": inventory.duplicate(true),
 		"fishing": fishing.duplicate(true),
+		"skills": skills.duplicate(true),
 		"random_stream": {"algorithm": "park_miller_16807_v1", "state": rng_state},
 		"next_event_id": next_event_id, "next_log_id": next_log_id,
 		"events_processed": events_processed,
@@ -89,6 +92,8 @@ static func _validate(record: Variant, version: int) -> PackedStringArray:
 		keys.append_array(["condition", "inventory"])
 	if version >= 6:
 		keys.append("fishing")
+	if version >= 15:
+		keys.append("skills")
 	if not has_keys(record, keys):
 		return PackedStringArray(["World record has missing or unknown fields."])
 	if not is_integer(record.schema_version, version, version):
@@ -144,6 +149,8 @@ static func _validate(record: Variant, version: int) -> PackedStringArray:
 		errors.append_array(Inventory.validate_legacy(record.inventory))
 	if version >= 6:
 		errors.append_array(Fishing.validate(record.fishing, int(record.clock.game_time_ms), version == 6, version in [7, 8, 9, 10], version == 11, version in [12, 13]))
+	if version >= 15:
+		errors.append_array(Skills.validate(record.skills))
 	if version >= 14 and errors.is_empty():
 		if record.fishing.state != "idle" and record.fishing.zone != record.player.zone_id:
 			errors.append("Active fishing zone does not match player location.")
@@ -209,7 +216,7 @@ static func migrate_record(record: Variant) -> Dictionary:
 		if not current_errors.is_empty():
 			return {"ok": false, "message": " ".join(current_errors), "code": "invalid"}
 		return {"ok": true, "record": record.duplicate(true), "migrated": false}
-	if is_integer(schema, 1, 13):
+	if is_integer(schema, 1, 14):
 		# Validate the old contract BEFORE adding fields; malformed/unknown fields
 		# must not be silently repaired or discarded by migration.
 		var legacy_errors := _validate(record, int(schema))
@@ -280,6 +287,8 @@ static func migrate_record(record: Variant) -> Dictionary:
 					if int(migrated.fishing.last_catch_weight_g) <= 0:
 						migrated.fishing.last_catch_weight_g = 250
 					Fishing.start_fight(migrated.fishing, migrated.environment.water_by_zone[migrated.fishing.zone])
+		if int(schema) < 15:
+			migrated.skills = Skills.create()
 		var errors := validate(migrated)
 		if not errors.is_empty():
 			return {"ok": false, "message": "Cannot migrate legacy save: " + " ".join(errors), "code": "invalid"}
@@ -304,6 +313,7 @@ static func from_record(record: Dictionary) -> RefCounted:
 	result.condition = Condition.normalized(record.condition)
 	result.inventory = Inventory.normalized(record.inventory)
 	result.fishing = Fishing.normalized(record.fishing)
+	result.skills = Skills.normalized(record.skills)
 	result.rng_state = int(record.random_stream.state)
 	result.next_event_id = int(record.next_event_id)
 	result.next_log_id = int(record.next_log_id)
