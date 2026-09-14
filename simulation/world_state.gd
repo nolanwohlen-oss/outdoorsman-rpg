@@ -4,7 +4,9 @@ extends RefCounted
 const Map = preload("res://simulation/testbed_map.gd")
 const CoastalEnvironment = preload("res://simulation/environment.gd")
 const Ecology = preload("res://simulation/ecology.gd")
-const SCHEMA_VERSION := 4
+const Condition = preload("res://simulation/condition.gd")
+const Inventory = preload("res://simulation/inventory.gd")
+const SCHEMA_VERSION := 5
 const MAP_ID := "generic_coastal_testbed_v1"
 const DAY_MS := 86400000
 const START_MS := 21600000 # Day 1, 06:00. Fixed testbed sunrise/sunset: 06:00/18:00.
@@ -24,6 +26,8 @@ var player_zone: String = "sandy_shore"
 var channel_skiff_available: bool = true
 var environment: Dictionary = {}
 var ecology: Dictionary = {}
+var condition: Dictionary = {}
+var inventory: Dictionary = {}
 var rng_state: int = 1
 var next_event_id: int = 1
 var next_log_id: int = 1
@@ -59,6 +63,7 @@ func to_record() -> Dictionary:
 		"travel": {"channel_skiff_available": channel_skiff_available},
 		"environment": environment.duplicate(true),
 		"ecology": ecology.duplicate(true),
+		"condition": condition.duplicate(true), "inventory": inventory.duplicate(true),
 		"random_stream": {"algorithm": "park_miller_16807_v1", "state": rng_state},
 		"next_event_id": next_event_id, "next_log_id": next_log_id,
 		"events_processed": events_processed,
@@ -77,6 +82,8 @@ static func _validate(record: Variant, version: int) -> PackedStringArray:
 		keys.append("environment")
 	if version >= 4:
 		keys.append("ecology")
+	if version >= 5:
+		keys.append_array(["condition", "inventory"])
 	if not has_keys(record, keys):
 		return PackedStringArray(["World record has missing or unknown fields."])
 	if not is_integer(record.schema_version, version, version):
@@ -112,6 +119,9 @@ static func _validate(record: Variant, version: int) -> PackedStringArray:
 		errors.append_array(CoastalEnvironment.validate(record.environment, int(record.seed), int(record.clock.game_time_ms)))
 	if version >= 4:
 		errors.append_array(Ecology.validate(record.ecology, int(record.seed), int(record.clock.game_time_ms)))
+	if version >= 5:
+		errors.append_array(Condition.validate(record.condition, int(record.clock.game_time_ms)))
+		errors.append_array(Inventory.validate(record.inventory))
 	if record.scheduled_events.size() > MAX_PENDING or record.history.size() > MAX_HISTORY or record.history.is_empty():
 		errors.append("Invalid event record count.")
 	if int(record.events_processed) + record.scheduled_events.size() != int(record.next_event_id) - 1:
@@ -172,7 +182,7 @@ static func migrate_record(record: Variant) -> Dictionary:
 		if not current_errors.is_empty():
 			return {"ok": false, "message": " ".join(current_errors), "code": "invalid"}
 		return {"ok": true, "record": record.duplicate(true), "migrated": false}
-	if is_integer(schema, 1, 3):
+	if is_integer(schema, 1, 4):
 		# Validate the old contract BEFORE adding fields; malformed/unknown fields
 		# must not be silently repaired or discarded by migration.
 		var legacy_errors := _validate(record, int(schema))
@@ -186,10 +196,12 @@ static func migrate_record(record: Variant) -> Dictionary:
 		if int(schema) < 3:
 			migrated.environment = CoastalEnvironment.create(int(record.seed), int(record.clock.game_time_ms))
 		migrated.ecology = Ecology.create(int(record.seed), int(record.clock.game_time_ms))
+		migrated.condition = Condition.create(int(record.clock.game_time_ms))
+		migrated.inventory = Inventory.create()
 		var errors := validate(migrated)
 		if not errors.is_empty():
 			return {"ok": false, "message": "Cannot migrate legacy save: " + " ".join(errors), "code": "invalid"}
-		return {"ok": true, "record": migrated, "migrated": true, "message": "Older save upgraded. Environment initialized at saved game time; clock paused. No offline time added."}
+		return {"ok": true, "record": migrated, "migrated": true, "message": "Older save upgraded; new layers initialized at saved game time. Clock paused. No offline time added."}
 	return {"ok": false, "message": "Unsupported world schema; existing files were kept.", "code": "unsupported"}
 
 static func from_record(record: Dictionary) -> RefCounted:
@@ -204,6 +216,8 @@ static func from_record(record: Dictionary) -> RefCounted:
 	result.channel_skiff_available = bool(record.travel.channel_skiff_available)
 	result.environment = CoastalEnvironment.normalized(record.environment)
 	result.ecology = Ecology.normalized(record.ecology)
+	result.condition = Condition.normalized(record.condition)
+	result.inventory = Inventory.normalized(record.inventory)
 	result.rng_state = int(record.random_stream.state)
 	result.next_event_id = int(record.next_event_id)
 	result.next_log_id = int(record.next_log_id)
