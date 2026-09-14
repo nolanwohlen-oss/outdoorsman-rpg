@@ -269,8 +269,8 @@ static func hookset_result(cue: String, force: String, elapsed_ms: int) -> Dicti
 			timing_score = 2 if timing == "immediate" else (3 if timing == "settled" else 1)
 		"run":
 			timing_score = 1 if timing == "immediate" else (3 if timing == "settled" else 2)
-	var force_score := {"soft": 1, "firm": 3, "hard": 2}[force]
-	var score: int = timing_score + int(force_score)
+	var force_score: int = int({"soft": 1, "firm": 3, "hard": 2}[force])
+	var score: int = timing_score + force_score
 	if score <= 2:
 		return {"ok": true, "status": "missed", "timing": timing, "message": "The hook failed to establish a secure hold."}
 	var placement := "mouth_interior"
@@ -280,8 +280,8 @@ static func hookset_result(cue: String, force: String, elapsed_ms: int) -> Dicti
 		placement = "jaw"
 	elif score == 4:
 		placement = "lip"
-	var hold := {"corner": 940, "jaw": 880, "lip": 760, "mouth_interior": 620}[placement]
-	var injury := {"corner": 80, "jaw": 120, "lip": 70, "mouth_interior": 180}[placement]
+	var hold: int = int({"corner": 940, "jaw": 880, "lip": 760, "mouth_interior": 620}[placement])
+	var injury: int = int({"corner": 80, "jaw": 120, "lip": 70, "mouth_interior": 180}[placement])
 	if force == "soft":
 		hold -= 80
 	elif force == "hard":
