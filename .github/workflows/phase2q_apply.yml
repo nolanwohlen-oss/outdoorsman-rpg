@@ -1,0 +1,28 @@
+name: Apply Phase 2Q integration
+
+on:
+  push:
+    branches: [phase-2q-angling-skills]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.head_commit.message == 'Run Phase 2Q integration'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase-2q-angling-skills
+      - name: Apply Phase 2Q source changes
+        run: python3 tools/apply_phase2q.py
+      - name: Remove branch-only transformation scaffolding
+        run: rm tools/apply_phase2q.py .github/workflows/phase2q_apply.yml
+      - name: Commit integrated Phase 2Q state
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Phase 2Q: integrate Angling progression'
+          git push origin HEAD:phase-2q-angling-skills
