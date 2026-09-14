@@ -7,15 +7,15 @@ const STATES := ["idle", "rigged", "cast", "hooked"]
 const SPECIES := ["mullet", "atlantic_menhaden", "redfish", "speckled_trout", "black_drum"]
 
 static func create() -> Dictionary:
-	return {"version": VERSION, "state": "idle", "zone": "", "target_species": "", "bite_due_ms": 0, "last_outcome": ""}
+	return {"version": VERSION, "state": "idle", "zone": "", "target_species": "", "bite_due_ms": 0, "last_outcome": "", "last_catch_weight_g": 0, "retained_count": 0, "released_count": 0}
 
 static func validate(record: Variant, now_ms: int) -> PackedStringArray:
-	var keys := ["version", "state", "zone", "target_species", "bite_due_ms", "last_outcome"]
+	var keys := ["version", "state", "zone", "target_species", "bite_due_ms", "last_outcome", "last_catch_weight_g", "retained_count", "released_count"]
 	if not record is Dictionary or record.size() != keys.size() or not record.has_all(keys):
 		return PackedStringArray(["Fishing state has missing or unknown fields."])
 	if int(record.version) != VERSION or not record.state in STATES or not record.zone is String or not record.target_species is String or not record.last_outcome is String:
 		return PackedStringArray(["Invalid fishing state."])
-	if (not record.zone.is_empty() and not record.zone in Map.ZONE_IDS) or (not record.target_species.is_empty() and not record.target_species in SPECIES) or int(record.bite_due_ms) < 0 or int(record.bite_due_ms) > now_ms + 3600000:
+	if (not record.zone.is_empty() and not record.zone in Map.ZONE_IDS) or (not record.target_species.is_empty() and not record.target_species in SPECIES) or int(record.bite_due_ms) < 0 or int(record.bite_due_ms) > now_ms + 3600000 or int(record.last_catch_weight_g) < 0 or int(record.last_catch_weight_g) > 100000 or int(record.retained_count) < 0 or int(record.released_count) < 0:
 		return PackedStringArray(["Invalid fishing encounter."])
 	return PackedStringArray()
 
