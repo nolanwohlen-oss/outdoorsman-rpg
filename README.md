@@ -2,7 +2,7 @@
 
 An Android outdoor survival RPG, beginning with a small laboratory for its simulation systems.
 
-**Current milestone: Phase 2D — ecology foundation (schema 4, development v0.5.0).** The app adds persistent counts for the five approved species, carrying capacity, deterministic movement and environmental feeding response to the Phase 2C testbed. Fishing, inventory and survival needs remain planned.
+**Current milestone: Phase 2E — player condition and inventory foundation (schema 5, development v0.6.0).** The app adds bounded condition values and starter quantity records to the deterministic ecology testbed. Fishing, consumption, crafting and equipment actions remain planned.
 
 The Phase 2A delivery spans the minimum contracts, clock and early persistence from the longer roadmap. Phase 2B adds map/habitat access; Phase 2C adds the first environmental integration test, not the complete weather framework. See [Phase 2A](docs/PHASE_2A.md), [Phase 2B](docs/PHASE_2B.md) and [Phase 2C contracts and limits](docs/PHASE_2C.md).
 
