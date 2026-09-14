@@ -48,7 +48,7 @@ func _contracts() -> void:
 	bad.seed = true
 	mutations.append(bad)
 	bad = record.duplicate(true)
-	bad.schema_version = 5
+	bad.schema_version = 6
 	mutations.append(bad)
 	bad = record.duplicate(true)
 	bad.unknown_field = "must not silently discard"
@@ -76,6 +76,10 @@ func _contracts() -> void:
 	var legacy: Dictionary = record.duplicate(true)
 	legacy.erase("environment")
 	legacy.erase("ecology")
+	legacy.erase("condition")
+	legacy.erase("inventory")
+	legacy.erase("condition")
+	legacy.erase("inventory")
 	legacy.erase("map_version")
 	legacy.erase("travel")
 	legacy.schema_version = 1
@@ -206,6 +210,8 @@ func _save_files() -> void:
 	var legacy: Dictionary = first.duplicate(true)
 	legacy.erase("environment")
 	legacy.erase("ecology")
+	legacy.erase("condition")
+	legacy.erase("inventory")
 	legacy.erase("map_version")
 	legacy.erase("travel")
 	legacy.schema_version = 1
@@ -528,6 +534,8 @@ func _environment_migrations() -> void:
 		var legacy := original.world.to_record()
 		legacy.erase("environment")
 		legacy.erase("ecology")
+		legacy.erase("condition")
+		legacy.erase("inventory")
 		legacy.schema_version = schema
 		if schema == 1:
 			legacy.erase("map_version")
