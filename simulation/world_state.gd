@@ -7,7 +7,7 @@ const Ecology = preload("res://simulation/ecology.gd")
 const Condition = preload("res://simulation/condition.gd")
 const Inventory = preload("res://simulation/inventory.gd")
 const Fishing = preload("res://simulation/fishing.gd")
-const SCHEMA_VERSION := 14
+const SCHEMA_VERSION := 15
 const MAP_ID := "generic_coastal_testbed_v1"
 const DAY_MS := 86400000
 const START_MS := 21600000 # Day 1, 06:00. Fixed testbed sunrise/sunset: 06:00/18:00.
@@ -17,7 +17,7 @@ const MAX_HISTORY := 200
 const MAX_PENDING := 64
 const ZONES := Map.ZONE_IDS
 const CALENDAR := {"sunrise": 21600000, "sunset": 64800000, "midnight": 0}
-const LOG_KINDS := ["world_started", "observe", "move", "wait_started", "wait_finished", "wait_stopped", "scheduled", "sunrise", "sunset", "midnight", "marker", "wait_interrupt", "random_draw", "fishing_rigged", "fishing_cast", "fish_hooked", "fish_fight", "fish_lost", "fish_landed"]
+const LOG_KINDS := ["world_started", "observe", "move", "wait_started", "wait_finished", "wait_stopped", "scheduled", "sunrise", "sunset", "midnight", "marker", "wait_interrupt", "random_draw", "fishing_rigged", "fishing_cast", "fishing_present", "fish_strike", "fish_hooked", "fish_fight", "fish_lost", "fish_landed"]
 
 var seed: int = 13092026
 var game_time_ms: int = START_MS
@@ -143,7 +143,7 @@ static func _validate(record: Variant, version: int) -> PackedStringArray:
 	elif version >= 5:
 		errors.append_array(Inventory.validate_legacy(record.inventory))
 	if version >= 6:
-		errors.append_array(Fishing.validate(record.fishing, int(record.clock.game_time_ms), version == 6, version in [7, 8, 9, 10], version == 11, version in [12, 13]))
+		errors.append_array(Fishing.validate(record.fishing, int(record.clock.game_time_ms), version == 6, version in [7, 8, 9, 10], version == 11, version in [12, 13], version == 14))
 	if version >= 14 and errors.is_empty():
 		if record.fishing.state != "idle" and record.fishing.zone != record.player.zone_id:
 			errors.append("Active fishing zone does not match player location.")
@@ -209,6 +209,23 @@ static func migrate_record(record: Variant) -> Dictionary:
 		if not current_errors.is_empty():
 			return {"ok": false, "message": " ".join(current_errors), "code": "invalid"}
 		return {"ok": true, "record": record.duplicate(true), "migrated": false}
+	if is_integer(schema, 14, 14):
+		var legacy_errors := _validate(record, 14)
+		if not legacy_errors.is_empty():
+			return {"ok": false, "message": "Cannot migrate Phase 2P save: " + " ".join(legacy_errors), "code": "invalid"}
+		var migrated: Dictionary = record.duplicate(true)
+		migrated.schema_version = SCHEMA_VERSION
+		migrated.fishing.version = Fishing.VERSION
+		if migrated.fishing.state in ["cast", "hooked"]:
+			migrated.fishing.presentation = Fishing.default_presentation(migrated.fishing.rig_mode)
+			migrated.fishing.strike_cue = Fishing.strike_cue_for(migrated.fishing.target_species, migrated.fishing.presentation) if not migrated.fishing.target_species.is_empty() else ""
+		else:
+			migrated.fishing.presentation = ""
+			migrated.fishing.strike_cue = ""
+		var migrated_errors := validate(migrated)
+		if not migrated_errors.is_empty():
+			return {"ok": false, "message": "Cannot migrate Phase 2P save: " + " ".join(migrated_errors), "code": "invalid"}
+		return {"ok": true, "record": migrated, "migrated": true, "message": "Phase 2P save upgraded to presentation/strike causality at the saved game time. Clock paused. No offline time added."}
 	if is_integer(schema, 1, 13):
 		# Validate the old contract BEFORE adding fields; malformed/unknown fields
 		# must not be silently repaired or discarded by migration.
@@ -280,6 +297,12 @@ static func migrate_record(record: Variant) -> Dictionary:
 					if int(migrated.fishing.last_catch_weight_g) <= 0:
 						migrated.fishing.last_catch_weight_g = 250
 					Fishing.start_fight(migrated.fishing, migrated.environment.water_by_zone[migrated.fishing.zone])
+		if migrated.fishing.state in ["cast", "hooked"]:
+			migrated.fishing.presentation = Fishing.default_presentation(migrated.fishing.rig_mode)
+			migrated.fishing.strike_cue = Fishing.strike_cue_for(migrated.fishing.target_species, migrated.fishing.presentation) if not migrated.fishing.target_species.is_empty() else ""
+		else:
+			migrated.fishing.presentation = ""
+			migrated.fishing.strike_cue = ""
 		var errors := validate(migrated)
 		if not errors.is_empty():
 			return {"ok": false, "message": "Cannot migrate legacy save: " + " ".join(errors), "code": "invalid"}
