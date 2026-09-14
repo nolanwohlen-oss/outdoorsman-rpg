@@ -92,6 +92,10 @@ func _init() -> void:
 	var legacy := legacy_source.world.to_record()
 	legacy.schema_version = 14
 	legacy.fishing.version = 5
+	legacy.fishing.erase("strike_started_ms")
+	legacy.fishing.erase("hook_placement")
+	legacy.fishing.erase("hook_hold")
+	legacy.fishing.erase("hook_injury")
 	legacy.fishing.erase("presentation")
 	legacy.fishing.erase("strike_cue")
 	legacy.fishing.target_species = "redfish"

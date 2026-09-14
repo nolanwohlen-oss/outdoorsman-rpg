@@ -1,7 +1,7 @@
 extends RefCounted
 ## Deterministic fishing encounter and fight rules for the systems lab.
 
-const VERSION := 6
+const VERSION := 7
 const Map = preload("res://simulation/testbed_map.gd")
 const STATES := ["idle", "rigged", "cast", "hooked"]
 const SPECIES := ["mullet", "atlantic_menhaden", "redfish", "speckled_trout", "black_drum"]
@@ -12,6 +12,9 @@ const FIGHT_ACTIONS := ["give_line", "pressure", "reel"]
 const DRAG_SETTINGS := ["loose", "balanced", "tight"]
 const PRESENTATIONS := ["steady", "drift", "soak"]
 const STRIKE_CUES := ["tap", "pull", "run"]
+const HOOK_FORCES := ["soft", "firm", "hard"]
+const HOOK_PLACEMENTS := ["lip", "jaw", "corner", "mouth_interior"]
+const HOOK_RESPONSE_WINDOW_MS := 180000
 const ENGAGEMENT_THRESHOLD := 65
 const FIGHT_CUES := ["surge", "pull", "slack", "tired"]
 const READY_STAMINA := 200
@@ -35,6 +38,10 @@ static func create() -> Dictionary:
 		"rig_mode": "lure",
 		"presentation": "",
 		"strike_cue": "",
+		"strike_started_ms": 0,
+		"hook_placement": "",
+		"hook_hold": 0,
+		"hook_injury": 0,
 		"bait_item_id": "",
 		"rod_item_id": "",
 		"terminal_item_id": "",
@@ -51,8 +58,9 @@ static func create() -> Dictionary:
 		"handling_count": 0,
 	}
 
-static func validate(record: Variant, now_ms: int, legacy: bool = false, old_v1: bool = false, old_v2: bool = false, old_v3: bool = false, old_v5: bool = false) -> PackedStringArray:
-	var current_v6: bool = not legacy and not old_v1 and not old_v2 and not old_v3 and not old_v5
+static func validate(record: Variant, now_ms: int, legacy: bool = false, old_v1: bool = false, old_v2: bool = false, old_v3: bool = false, old_v5: bool = false, old_v6: bool = false) -> PackedStringArray:
+	var has_presentation: bool = not legacy and not old_v1 and not old_v2 and not old_v3 and not old_v5
+	var current_v7: bool = has_presentation and not old_v6
 	var keys := ["version", "state", "zone", "target_species", "bite_due_ms", "last_outcome", "last_catch_weight_g", "retained_count", "released_count"]
 	if not legacy and not old_v1:
 		keys.append_array(["rig_mode", "bait_item_id"])
@@ -61,8 +69,10 @@ static func validate(record: Variant, now_ms: int, legacy: bool = false, old_v1:
 	if not legacy and not old_v1 and not old_v2 and not old_v3:
 		keys.append_array(["reel_item_id", "line_item_id", "fish_stamina", "line_tension", "fish_distance_cm", "fight_round", "fish_cue", "lost_count"])
 		keys.append_array(["last_handling_method", "last_handling_condition", "handling_count"])
-	if current_v6:
+	if has_presentation:
 		keys.append_array(["presentation", "strike_cue"])
+	if current_v7:
+		keys.append_array(["strike_started_ms", "hook_placement", "hook_hold", "hook_injury"])
 	if legacy:
 		keys = ["version", "state", "zone", "target_species", "bite_due_ms", "last_outcome"]
 	var legacy_handling_fields: bool = (legacy or old_v1 or old_v2 or old_v3) and record is Dictionary and record.size() == keys.size() + 3 and record.has_all(["last_handling_method", "last_handling_condition", "handling_count"])
@@ -78,10 +88,12 @@ static func validate(record: Variant, now_ms: int, legacy: bool = false, old_v1:
 	if not old_v1 and not old_v2 and not old_v3:
 		numeric_fields.append_array(["fish_stamina", "line_tension", "fish_distance_cm", "fight_round", "lost_count"])
 		numeric_fields.append_array(["last_handling_condition", "handling_count"])
+	if current_v7:
+		numeric_fields.append_array(["strike_started_ms", "hook_hold", "hook_injury"])
 	for field in numeric_fields:
 		if not _integer(record[field], 0, 3153600000000):
 			return PackedStringArray(["Invalid fishing numeric field."])
-	var expected_version := 1 if old_v1 else (2 if old_v2 else (3 if old_v3 else (5 if old_v5 else VERSION)))
+	var expected_version := 1 if old_v1 else (2 if old_v2 else (3 if old_v3 else (5 if old_v5 else (6 if old_v6 else VERSION))))
 	if int(record.version) != expected_version or record.state not in STATES or not record.zone is String or not record.target_species is String or not record.last_outcome is String:
 		return PackedStringArray(["Invalid fishing state."])
 	if not old_v1:
@@ -100,7 +112,7 @@ static func validate(record: Variant, now_ms: int, legacy: bool = false, old_v1:
 			return PackedStringArray(["Prepared rig has premature encounter data."])
 		if record.state == "cast" and int(record.bite_due_ms) == 0:
 			return PackedStringArray(["Cast presentation lacks a strike-check time."])
-		if record.state == "cast" and not current_v6 and record.target_species == "":
+		if record.state == "cast" and not has_presentation and record.target_species == "":
 			return PackedStringArray(["Legacy cast lacks a target species."])
 		if record.state == "hooked" and (record.target_species == "" or int(record.bite_due_ms) == 0):
 			return PackedStringArray(["Hooked encounter lacks a target or bite time."])
@@ -118,7 +130,7 @@ static func validate(record: Variant, now_ms: int, legacy: bool = false, old_v1:
 				return PackedStringArray(["Invalid active fish-fight state."])
 		if record.last_handling_method not in [""] + LANDING_METHODS or not record.last_handling_method is String or not _integer(record.last_handling_condition, 0, 1000) or not _integer(record.handling_count, 0, 1000000000):
 			return PackedStringArray(["Invalid landing outcome record."])
-	if current_v6:
+	if has_presentation:
 		if not record.presentation is String or not record.strike_cue is String:
 			return PackedStringArray(["Invalid presentation or strike cue."])
 		if record.state in ["idle", "rigged"] and (record.presentation != "" or record.strike_cue != ""):
@@ -133,6 +145,21 @@ static func validate(record: Variant, now_ms: int, legacy: bool = false, old_v1:
 					return PackedStringArray(["Strike cue does not match the engaged presentation."])
 			elif record.state == "hooked":
 				return PackedStringArray(["Hooked fish lacks a strike cue."])
+	if current_v7:
+		if not record.hook_placement is String or int(record.strike_started_ms) > now_ms:
+			return PackedStringArray(["Invalid hook-set record."])
+		if record.state in ["idle", "rigged"] and (int(record.strike_started_ms) != 0 or not _hook_is_clear(record)):
+			return PackedStringArray(["Inactive rig retains hook-set state."])
+		if record.state == "cast":
+			if record.target_species.is_empty():
+				if int(record.strike_started_ms) != 0 or not _hook_is_clear(record):
+					return PackedStringArray(["Waiting cast retains premature hook-set state."])
+			else:
+				if not _integer(record.strike_started_ms, 1, now_ms) or not _hook_is_clear(record):
+					return PackedStringArray(["Detected strike lacks a valid response start time."])
+		if record.state == "hooked":
+			if not _integer(record.strike_started_ms, 1, now_ms) or record.hook_placement not in HOOK_PLACEMENTS or not _integer(record.hook_hold, 1, 1000) or not _integer(record.hook_injury, 0, 1000):
+				return PackedStringArray(["Hooked fish lacks valid placement, hold, or injury state."])
 	if record.last_outcome.length() > 512 or (not record.zone.is_empty() and record.zone not in Map.ZONE_IDS) or (not record.target_species.is_empty() and record.target_species not in SPECIES) or int(record.bite_due_ms) > now_ms + 3600000 or int(record.last_catch_weight_g) > 100000 or int(record.retained_count) > 1000000000 or int(record.released_count) > 1000000000 or (not old_v1 and not old_v2 and not old_v3 and int(record.lost_count) > 1000000000):
 		return PackedStringArray(["Invalid fishing encounter."])
 	return PackedStringArray()
@@ -228,6 +255,76 @@ static func strike_cue_for(species: String, presentation: String = "") -> String
 		return "pull"
 	return "tap"
 
+static func hookset_result(cue: String, force: String, elapsed_ms: int) -> Dictionary:
+	if cue not in STRIKE_CUES or force not in HOOK_FORCES or elapsed_ms < 0:
+		return {"ok": false, "message": "Choose a valid hook-set force for an active strike."}
+	if elapsed_ms > HOOK_RESPONSE_WINDOW_MS:
+		return {"ok": true, "status": "missed", "timing": "expired", "message": "The strike was answered too late and the fish dropped free."}
+	var timing := "immediate" if elapsed_ms <= 30000 else ("settled" if elapsed_ms <= 90000 else "late")
+	var timing_score := 0
+	match cue:
+		"tap":
+			timing_score = 3 if timing == "immediate" else (2 if timing == "settled" else 1)
+		"pull":
+			timing_score = 2 if timing == "immediate" else (3 if timing == "settled" else 1)
+		"run":
+			timing_score = 1 if timing == "immediate" else (3 if timing == "settled" else 2)
+	var force_score: int = int({"soft": 1, "firm": 3, "hard": 2}[force])
+	var score: int = timing_score + force_score
+	if score <= 2:
+		return {"ok": true, "status": "missed", "timing": timing, "message": "The hook failed to establish a secure hold."}
+	var placement := "mouth_interior"
+	if score >= 6:
+		placement = "corner"
+	elif score == 5:
+		placement = "jaw"
+	elif score == 4:
+		placement = "lip"
+	var hold: int = int({"corner": 940, "jaw": 880, "lip": 760, "mouth_interior": 620}[placement])
+	var injury: int = int({"corner": 80, "jaw": 120, "lip": 70, "mouth_interior": 180}[placement])
+	if force == "soft":
+		hold -= 80
+	elif force == "hard":
+		hold += 20
+		injury += 300
+		if timing == "immediate":
+			injury += 100
+	else:
+		injury += 60
+	if timing == "late":
+		injury += 100
+	var tension_delta := -80 if force == "soft" else (120 if force == "hard" else 0)
+	return {
+		"ok": true, "status": "hooked", "timing": timing, "placement": placement,
+		"hold": clampi(int(hold), 400, 980), "injury": clampi(int(injury), 0, 1000),
+		"tension_delta": tension_delta,
+		"message": "%s hook set established a %s hold." % [timing.capitalize(), placement.replace("_", " ")],
+	}
+
+static func hook_load_limit(record: Dictionary) -> int:
+	if record.state != "hooked":
+		return OVERLOAD_LIMIT
+	return clampi(550 + int(record.hook_hold) * 300 / 1000 - int(record.hook_injury) * 100 / 1000, 450, 850)
+
+static func hook_slack_limit(record: Dictionary) -> int:
+	if record.state != "hooked":
+		return SLACK_LIMIT
+	return clampi(SLACK_LIMIT + int((1000 - int(record.hook_hold)) / 4), SLACK_LIMIT, 300)
+
+static func upgrade_v6(record: Dictionary, now_ms: int) -> void:
+	record.version = VERSION
+	record.strike_started_ms = 0
+	record.hook_placement = ""
+	record.hook_hold = 0
+	record.hook_injury = 0
+	if record.state == "cast" and not record.target_species.is_empty():
+		record.strike_started_ms = mini(now_ms, int(record.bite_due_ms))
+	elif record.state == "hooked":
+		record.strike_started_ms = mini(now_ms, int(record.bite_due_ms))
+		record.hook_placement = "jaw"
+		record.hook_hold = 850
+		record.hook_injury = 120
+
 static func engagement_result(populations: Dictionary, zone: String, mode: String, presentation: String, water: Dictionary) -> Dictionary:
 	if not presentation_supported(mode, presentation):
 		return {"engaged": false, "species": "", "cue": "", "score": -100000}
@@ -257,10 +354,11 @@ static func start_fight(record: Dictionary, water: Dictionary) -> void:
 	record.fight_round = 0
 	record.fish_cue = cue_for(record, water)
 
-static func resolve_round(record: Dictionary, action: String, water: Dictionary, drag: String = "balanced", overload_limit: int = OVERLOAD_LIMIT) -> Dictionary:
+static func resolve_round(record: Dictionary, action: String, water: Dictionary, drag: String = "balanced", overload_limit: int = OVERLOAD_LIMIT, slack_limit: int = SLACK_LIMIT) -> Dictionary:
 	if record.state != "hooked" or action not in FIGHT_ACTIONS or drag not in DRAG_SETTINGS:
 		return {"ok": false, "message": "Choose a valid action and drag setting for a hooked fish."}
 	overload_limit = clampi(overload_limit, 450, OVERLOAD_LIMIT)
+	slack_limit = clampi(slack_limit, SLACK_LIMIT, 300)
 	var stamina := int(record.fish_stamina)
 	var tension := int(record.line_tension)
 	var distance := int(record.fish_distance_cm)
@@ -332,11 +430,11 @@ static func resolve_round(record: Dictionary, action: String, water: Dictionary,
 	record.fight_round = int(record.fight_round) + 1
 	if tension >= overload_limit:
 		return {"ok": true, "status": "overload", "message": "The fish broke free under excessive line tension."}
-	if tension <= SLACK_LIMIT:
+	if tension <= slack_limit:
 		return {"ok": true, "status": "slack", "message": "The hook pulled free when the line went slack."}
 	if distance >= COVER_DISTANCE_CM:
 		return {"ok": true, "status": "cover", "message": "The fish reached cover and broke free."}
-	record.line_tension = clampi(tension, SLACK_LIMIT + 1, OVERLOAD_LIMIT - 1)
+	record.line_tension = clampi(tension, slack_limit + 1, OVERLOAD_LIMIT - 1)
 	record.fish_distance_cm = clampi(distance, 1, COVER_DISTANCE_CM - 1)
 	record.fish_cue = cue_for(record, water)
 	return {"ok": true, "status": "continue", "message": "Pressure held; read the next fish cue."}
@@ -380,7 +478,14 @@ static func clear_active(record: Dictionary) -> void:
 	record.line_item_id = ""
 	record.presentation = ""
 	record.strike_cue = ""
+	record.strike_started_ms = 0
+	record.hook_placement = ""
+	record.hook_hold = 0
+	record.hook_injury = 0
 	clear_fight(record)
+
+static func _hook_is_clear(record: Dictionary) -> bool:
+	return record.hook_placement == "" and int(record.hook_hold) == 0 and int(record.hook_injury) == 0
 
 static func _fight_is_clear(record: Dictionary) -> bool:
 	return int(record.fish_stamina) == 0 and int(record.line_tension) == 0 and int(record.fish_distance_cm) == 0 and int(record.fight_round) == 0 and record.fish_cue == ""
