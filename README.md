@@ -2,7 +2,7 @@
 
 An Android outdoor survival RPG, beginning with a small laboratory for its simulation systems.
 
-**Current milestone: Phase 2K — equipment-driven fishing (schema 11, development v0.12.0).** The starter kit includes a test rod and spoon. Cut bait can be selected as a rig, is consumed on cast, and remains separate from food. Lure and bait rigs persist through saves and encounter cancellation. See [Phase 2K scope and phone test](docs/PHASE_2K.md).
+**Current milestone: Phase 2L — tackle compatibility and selected bait (schema 12, development v0.13.0).** The starter kit now has one physical test rod, spoon and hook. A spoon rig requires the rod and spoon; a bait rig requires the rod, hook and exact cut-bait item selected in Layers. The temporary bite delay is two game minutes for faster phone testing. See [Phase 2L scope and phone test](docs/PHASE_2L.md).
 
 The Phase 2A delivery spans the minimum contracts, clock and early persistence from the longer roadmap. Phase 2B adds map/habitat access; Phase 2C adds the first environmental integration test, not the complete weather framework. See [Phase 2A](docs/PHASE_2A.md), [Phase 2B](docs/PHASE_2B.md) and [Phase 2C contracts and limits](docs/PHASE_2C.md).
 
@@ -12,7 +12,7 @@ The Phase 2A delivery spans the minimum contracts, clock and early persistence f
 2. Open the newest successful run for `main`.
 3. Scroll to **Artifacts** and download **outdoorsman-android-debug**.
 4. Extract the downloaded ZIP in your phone's Files app and open `outdoorsman-test.apk`. Allow that app to install this APK if Android asks.
-5. Launch **Outdoorsman Systems Lab**. Use **Env** to inspect conditions, **Map** for route access, and **Clock** to wait/save/load. Follow the [phone checklist](docs/PHONE_TESTING.md).
+5. Launch **Outdoorsman Systems Lab**. Use **Env** to inspect conditions, **Map** for route access, and **Clock** to wait/save/load. Follow the current [Phase 2L phone checklist](docs/PHASE_2L.md); the longer [foundation regression checklist](docs/PHONE_TESTING.md) remains available when needed.
 
 This is a development APK, not a Google Play release. No Windows PC, Google Play developer account, advertising account, or payment setup is needed for this milestone. See [phone testing](docs/PHONE_TESTING.md) for the checklist and build troubleshooting.
 

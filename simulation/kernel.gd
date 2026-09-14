@@ -208,45 +208,55 @@ func observe() -> Dictionary:
 	_log("observe", "At %s; %s; front %s; tide %s (%d cm); wind %.1f m/s; runoff %d/1000. CoastalEnvironment tick: %s." % [world.player_zone, light_state(), env.weather.front_state, env.tide.phase, env.tide.height_cm, float(env.weather.wind_deci_mps) / 10.0, env.runoff_permille, time_text(int(env.updated_at_ms))])
 	return {"ok": true, "message": "Observation added to the log."}
 
-func rig_fishing(use_bait: bool = false) -> Dictionary:
+func rig_fishing(mode: String = "lure", bait_item_id: String = "") -> Dictionary:
 	if world.fishing.state in ["cast", "hooked"]:
 		return _failure("Finish or cancel the current fishing encounter first.")
 	if world.player_zone == "elevated_camp" or not world.environment.water_by_zone[world.player_zone].water_present:
 		return _failure("Fishing requires a water zone.")
-	var bait_id := ""
-	if use_bait:
-		bait_id = Inventory.carried_id(world.inventory, "cut_bait")
-		if bait_id.is_empty():
-			return _failure("Carry prepared cut bait before choosing a bait rig.")
+	if mode not in ["lure", "bait"]:
+		return _failure("Choose a supported rig type.")
+	var rod_id := Inventory.carried_id(world.inventory, "test_rod")
+	var terminal_id := Inventory.carried_id(world.inventory, "test_spoon" if mode == "lure" else "test_hook")
+	if rod_id.is_empty() or terminal_id.is_empty():
+		return _failure("Carry the test rod and compatible terminal tackle.")
+	if mode == "bait":
+		var bait: Variant = world.inventory.entries.get(bait_item_id)
+		if not bait is Dictionary or bait.kind != "cut_bait" or bait.container != "pack" or int(bait.mass_g) < 50:
+			return _failure("Select a carried cut-bait item with at least 50 g remaining.")
 	world.fishing.state = "rigged"
 	world.fishing.zone = world.player_zone
 	world.fishing.target_species = ""
 	world.fishing.bite_due_ms = 0
-	world.fishing.rig_mode = "bait" if use_bait else "lure"
-	world.fishing.bait_item_id = bait_id
-	_log("fishing_rigged", "Rig prepared at %s." % world.player_zone)
-	return {"ok": true, "message": "Rig prepared."}
+	world.fishing.last_catch_weight_g = 0
+	world.fishing.rig_mode = mode
+	world.fishing.bait_item_id = bait_item_id if mode == "bait" else ""
+	world.fishing.rod_item_id = rod_id
+	world.fishing.terminal_item_id = terminal_id
+	_log("fishing_rigged", "%s rig prepared at %s with %s and %s." % [mode.capitalize(), world.player_zone, rod_id, terminal_id])
+	return {"ok": true, "message": "%s rig prepared." % mode.capitalize()}
 
 func cast_fishing() -> Dictionary:
 	if world.fishing.state != "rigged" or world.fishing.zone != world.player_zone:
 		return _failure("Prepare a rig at your current water zone first.")
-	var choices: Array = []
+	var link_errors := Fishing.validate_inventory_links(world.fishing, world.inventory)
+	if not link_errors.is_empty():
+		return _failure(link_errors[0])
+	var weighted_choices: Array[String] = []
 	for species in Fishing.SPECIES:
 		if int(world.ecology.populations[species].get(world.player_zone, 0)) > 0:
-			choices.append(species)
-	if choices.is_empty():
+			for count in Fishing.species_weight(species, world.fishing.rig_mode):
+				weighted_choices.append(species)
+	if weighted_choices.is_empty():
 		return _failure("No test population is present here.")
 	if world.fishing.rig_mode == "bait":
-		if not world.inventory.entries.has(world.fishing.bait_item_id) or world.inventory.entries[world.fishing.bait_item_id].container != "pack":
-			return _failure("Selected bait is no longer in the pack.")
 		world.inventory.entries[world.fishing.bait_item_id].mass_g = maxi(0, int(world.inventory.entries[world.fishing.bait_item_id].mass_g) - 50)
 		if world.inventory.entries[world.fishing.bait_item_id].mass_g == 0:
 			world.inventory.entries.erase(world.fishing.bait_item_id)
 	world.fishing.state = "cast"
-	world.fishing.target_species = choices[posmod(world.seed + world.game_time_ms, choices.size())]
-	world.fishing.bite_due_ms = world.game_time_ms + 15 * MINUTE_MS
-	_log("fishing_cast", "Cast into %s; bite window opens in 15 game minutes." % world.player_zone)
-	return {"ok": true, "message": "Cast complete. Check for a bite after 15 game minutes."}
+	world.fishing.target_species = weighted_choices[posmod(world.seed + world.game_time_ms, weighted_choices.size())]
+	world.fishing.bite_due_ms = world.game_time_ms + Fishing.BITE_DELAY_MS
+	_log("fishing_cast", "%s cast into %s; test bite window opens in 2 game minutes." % [world.fishing.rig_mode.capitalize(), world.player_zone])
+	return {"ok": true, "message": "Cast complete. Check for a bite after 2 game minutes."}
 
 func hook_fishing() -> Dictionary:
 	if world.fishing.zone != world.player_zone:
@@ -282,6 +292,12 @@ func land_fishing(retain: bool) -> Dictionary:
 	world.condition.hydration = maxi(0, int(world.condition.hydration) - 1)
 	world.fishing.last_outcome = ("retained " if retain else "released ") + "%s (%dg)" % [species, weight]
 	world.fishing.state = "idle"
+	world.fishing.zone = ""
+	world.fishing.target_species = ""
+	world.fishing.bite_due_ms = 0
+	world.fishing.bait_item_id = ""
+	world.fishing.rod_item_id = ""
+	world.fishing.terminal_item_id = ""
 	_log("fish_landed", world.fishing.last_outcome.capitalize() + ".")
 	return {"ok": true, "message": "Fish %s: %s." % ["retained" if retain else "released", species]}
 
@@ -320,6 +336,12 @@ func cancel_fishing() -> Dictionary:
 	if not world.fishing.state in ["cast", "hooked", "rigged"]:
 		return _failure("No fishing encounter to cancel.")
 	world.fishing.state = "idle"
+	world.fishing.zone = ""
+	world.fishing.target_species = ""
+	world.fishing.bite_due_ms = 0
+	world.fishing.bait_item_id = ""
+	world.fishing.rod_item_id = ""
+	world.fishing.terminal_item_id = ""
 	world.fishing.last_outcome = "Fishing cancelled; no fish retained."
 	_log("observe", world.fishing.last_outcome)
 	return {"ok": true, "message": world.fishing.last_outcome}

@@ -52,6 +52,7 @@ var condition_label: Label
 var inventory_label: Label
 var item_picker: OptionButton
 var item_details: Label
+var fishing_status: Label
 
 func _ready() -> void:
 	theme = _theme()
@@ -212,7 +213,7 @@ func _build_interface() -> void:
 	add_child(margin)
 	var layout := _column(margin, 8)
 	layout.add_child(_label("OUTDOORSMAN", 34))
-	layout.add_child(_label("SYSTEMS LAB  /  PHASE 2K", 20, ACCENT))
+	layout.add_child(_label("SYSTEMS LAB  /  PHASE 2L", 20, ACCENT))
 	clock_label = _label("", 30)
 	calendar_label = _label("", 21, MUTED)
 	location_label = _label("", 23, ACCENT)
@@ -237,11 +238,11 @@ func _build_interface() -> void:
 	status_label = _label("", 21, ACCENT)
 	status_label.max_lines_visible = 4
 	layout.add_child(status_label)
-	var build := "v0.12.0 · local build"
+	var build := "v0.13.0 · local build"
 	if FileAccess.file_exists("res://config/build_info.json"):
 		var info = JSON.parse_string(FileAccess.get_file_as_string("res://config/build_info.json"))
 		if info is Dictionary:
-			build = "v%s · build %s · %s" % [str(info.get("version", "0.12.0")), str(info.get("number", "local")).trim_suffix(".0"), info.get("commit", "unknown")]
+			build = "v%s · build %s · %s" % [str(info.get("version", "0.13.0")), str(info.get("number", "local")).trim_suffix(".0"), info.get("commit", "unknown")]
 	layout.add_child(_label(build, 18, MUTED))
 	new_world_dialog = ConfirmationDialog.new()
 	new_world_dialog.title = "Start a new test world?"
@@ -260,8 +261,11 @@ func _build_clock(column: VBoxContainer) -> void:
 	_button(row, "Go to camp\nFull route", _move_to.bind("elevated_camp"))
 	column.add_child(HSeparator.new())
 	column.add_child(_label("Fishing test actions", 26, ACCENT))
-	_button(column, "Prepare lure rig", _fish_rig.bind(false))
-	_button(column, "Prepare bait rig", _fish_rig.bind(true))
+	fishing_status = _label("", 21, MUTED)
+	column.add_child(fishing_status)
+	column.add_child(_label("Test bite delay: 2 game minutes (20 seconds while the clock runs). Select cut bait in Layers before preparing a bait rig.", 19, MUTED))
+	_button(column, "Prepare spoon rig", _fish_rig.bind("lure"))
+	_button(column, "Prepare bait rig with selected item", _fish_rig.bind("bait"))
 	_button(column, "Cast selected rig", _fish_cast)
 	row = _row(column)
 	_button(row, "Set hook", _fish_hook)
@@ -446,6 +450,9 @@ func _refresh() -> void:
 		button.disabled = not at_camp or save_blocked
 	safe_wait_label.text = "At camp. Waits process every scheduled event and can be interrupted." if at_camp else "Travel to elevated camp to wait safely."
 	run_button.disabled = save_blocked or not session.blocked.is_empty()
+	if fishing_status != null:
+		var f: Dictionary = kernel.world.fishing
+		fishing_status.text = "State: %s · Rig: %s\nTarget: %s · Bite: %s" % [f.state, f.rig_mode, f.target_species if not f.target_species.is_empty() else "none", Kernel.time_text(int(f.bite_due_ms)) if f.state == "cast" else "not waiting"]
 	if condition_label != null:
 		var c: Dictionary = kernel.world.condition
 		condition_label.text = "Hydration %d/1000 · Energy %d/1000\nExposure %d/1000 · Sleep debt %d/1000\nHealth %d/1000 · Updated %s" % [c.hydration, c.energy, c.exposure, c.sleep_debt, c.health, Kernel.time_text(int(c.updated_at_ms))]
@@ -584,9 +591,12 @@ func _fish_cancel() -> void:
 	if _can_act():
 		_after_action(kernel.cancel_fishing())
 
-func _fish_rig(use_bait: bool = false) -> void:
+func _fish_rig(mode: String = "lure") -> void:
 	if _can_act():
-		_after_action(kernel.rig_fishing(use_bait))
+		var bait_id := ""
+		if mode == "bait" and item_picker.selected >= 0:
+			bait_id = str(item_picker.get_item_metadata(item_picker.selected))
+		_after_action(kernel.rig_fishing(mode, bait_id))
 
 func _fish_cast() -> void:
 	if _can_act():

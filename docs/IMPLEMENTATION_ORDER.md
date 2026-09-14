@@ -38,14 +38,14 @@ Phase 2A combines the minimum contracts from Phase 2, the clock foundation from 
 
 Implemented records cover world/map identity, player location, clock and fractional time, one explicit random stream, pending events, and bounded event history. See `PHASE_2A.md` for units, ownership, limits, versions, test fixtures, and gates.
 
-The current test includes only the reciprocal shore–camp path (two game minutes each way), safe camp waits, fixed daylight, and scheduler markers. All six zones remain inspectable. Habitat, weather/water, biological accounting, player vitals, quantities/items, fishing, and camping simulation still require their own contracts and implementation.
+That delivery included only the reciprocal shore–camp path (two game minutes each way), safe camp waits, fixed daylight, and scheduler markers. All six zones remained inspectable. Later lettered slices add systems without retroactively claiming that Phase 2A completed the full simulation.
 
 ## Phase 2B delivery
 
 Phase 2B completes the generic map/habitat movement test layer: all six zones have canonical terrain/exposure/habitat records, reciprocal foot/wade/boat routes, fixed test durations, visible blocked-route reasons, and a validated Phase 2A-to-2B save migration. The channel skiff is fixed map access infrastructure, not inventory. Weather, water, ecology, player condition, fishing, camping, 3D, and monetization remain outside the delivery.
 
-## Next concrete task
+## Current position and next concrete task
 
-Phase 2C adds versioned environmental records, five-minute deterministic updates, retained runoff/thermal state, read-only instruments, whole-trip access checks and legacy save migration. It implements the first weather/water test layer; the master framework's complete atmosphere and hydrology remain later work. Fixed route durations are unchanged. See `PHASE_2C.md`.
+Lettered slices 2C–2L now cover deterministic environmental records, five-species population accounting, coarse player condition, the fishing state machine, physical item identity and storage, explicit fish processing, and the first persistent tackle/compatibility links. Each phase document records its own limits and phone gate. These are connected systems-lab fixtures, not completed versions of master phases 5–8.
 
-Complete the Phase 2C phone checklist before beginning ecology. The next proposed slice is the five-species population/accounting and environmental-response test, scoped separately from fishing, inventory and player survival needs. Passing an automated gate does not substitute for Android device testing or mean the complete initial survival loop is playable.
+Phase 2L must pass its Android checklist before another system depends on it. The next proposed slice is fight and landing causality: timed player decisions, fish exertion and traceable failure reasons tied to persistent encounter and equipment records. Camping, survival fidelity, individual wildlife behavior, the dedicated map and 3D presentation remain later gates. Passing automation does not substitute for physical Android testing or mean the complete initial survival loop is playable.
