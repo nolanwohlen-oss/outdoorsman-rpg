@@ -1,0 +1,29 @@
+name: Apply Phase 2O
+
+on:
+  push:
+    branches: [phase-2o-tackle-condition]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.head_commit.message == 'Run one-shot Phase 2O source transformation'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out Phase 2O branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: phase-2o-tackle-condition
+          persist-credentials: true
+      - name: Apply exact source transformation
+        run: python3 tools/apply_phase2o.py
+      - name: Commit transformed source
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Phase 2O: add tackle wear and recovery'
+          git push origin HEAD:phase-2o-tackle-condition
