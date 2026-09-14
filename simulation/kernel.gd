@@ -185,7 +185,12 @@ func wait_minutes(minutes: int) -> Dictionary:
 	_log("wait_started", "Safe wait requested: %d game minutes." % minutes)
 	var result := _advance(minutes * MINUTE_MS, true)
 	_log("wait_stopped" if result.interrupted else "wait_finished", "Wait advanced %d seconds%s." % [int(result.advanced_ms / 1000), "; interrupted by scheduled event" if result.interrupted else ""])
-	result.message = "Wait interrupted at scheduled …76 tokens truncated…te(), env.weather.front_state, env.tide.phase, env.tide.height_cm, float(env.weather.wind_deci_mps) / 10.0, env.runoff_permille, time_text(int(env.updated_at_ms))])
+	result.message = "Wait interrupted at scheduled event." if result.interrupted else "Wait complete."
+	return result
+
+func observe() -> Dictionary:
+	var env: Dictionary = world.environment
+	_log("observe", "At %s; %s; front %s; tide %s (%d cm); wind %.1f m/s; runoff %d/1000. CoastalEnvironment tick: %s." % [world.player_zone, light_state(), env.weather.front_state, env.tide.phase, env.tide.height_cm, float(env.weather.wind_deci_mps) / 10.0, env.runoff_permille, time_text(int(env.updated_at_ms))])
 	return {"ok": true, "message": "Observation added to the log."}
 
 func random_u31() -> int:
