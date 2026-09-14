@@ -844,7 +844,7 @@ func _phase_2m_fight_gate() -> void:
 	var overload_result := overload.fight_fishing("pressure")
 	check(overload_result.ok and overload_result.status == "overload" and overload.world.game_time_ms == start + Fishing.FIGHT_ACTION_MS and overload.world.fishing.state == "idle" and overload.world.fishing.lost_count == 1 and "excessive line tension" in overload.world.fishing.last_outcome, "Pressuring into a surge causes a timed, explicit overload loss.")
 	check(int(overload.world.ecology.populations[overload_species][overload.world.player_zone]) == overload_population, "An overload loss leaves the hooked fish in the ecology population.")
-	check(overload.rig_fishing().ok and overload.cancel_fishing().ok, "A causal fight loss remains recoverable through a new rig.")
+	check(not overload.rig_fishing().ok, "An overload line break requires explicit tackle recovery before a new rig.")
 
 	var slack := _hooked_fixture(43)
 	var slack_species: String = slack.world.fishing.target_species
