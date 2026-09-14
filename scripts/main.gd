@@ -430,7 +430,7 @@ func _refresh() -> void:
 		var c: Dictionary = kernel.world.condition
 		condition_label.text = "Hydration %d/1000 · Energy %d/1000\nExposure %d/1000 · Sleep debt %d/1000\nHealth %d/1000 · Updated %s" % [c.hydration, c.energy, c.exposure, c.sleep_debt, c.health, Kernel.time_text(int(c.updated_at_ms))]
 		var items: Dictionary = kernel.world.inventory.items
-		inventory_label.text = "Water %d mL · Food %d kcal\nFirewood %d · Bait %d" % [items.water_ml, items.food_kcal, items.firewood_units, items.bait_units]
+		inventory_label.text = "Water %d mL · Rations %d kcal\nRaw fish %d g · Firewood %d · Bait %d" % [items.water_ml, items.food_kcal, items.fish_food_g, items.firewood_units, items.bait_units]
 
 func _zone_name(zone_id: String) -> String:
 	for zone in catalog.zones:
