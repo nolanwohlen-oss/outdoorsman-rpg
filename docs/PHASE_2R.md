@@ -19,6 +19,10 @@ Development v0.19.0. World schema 16 / fishing record v7. This slice turns the P
 
 The response windows, placement table, hold values, injury values, dynamic slack threshold and hook-load limit are deterministic prototype coefficients. They prove causal ownership and persistence only. They are not final fish-anatomy, hook-pattern, rod-action, line-stretch, drag, or player-skill tuning.
 
+## Validation gate
+
+The dedicated Phase 2R suite must pass alongside every historical simulation/persistence test, signed Android export, Linux launch and preview capture before merge. A green automated build still does not replace the physical Android checklist below.
+
 ## Android phone gate
 
 1. Update-install the newest APK and confirm `v0.19.0` / `PHASE 2R`. Load the Phase 2Q save and confirm no closed-app Game Clock time was added.
