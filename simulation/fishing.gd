@@ -9,6 +9,7 @@ const BITE_DELAY_MS := 120000 # Two game minutes for phone-system testing.
 const FIGHT_ACTION_MS := 30000
 const LANDING_ACTION_MS := 60000
 const FIGHT_ACTIONS := ["give_line", "pressure", "reel"]
+const DRAG_SETTINGS := ["loose", "balanced", "tight"]
 const FIGHT_CUES := ["surge", "pull", "slack", "tired"]
 const READY_STAMINA := 200
 const READY_DISTANCE_CM := 250
@@ -149,9 +150,10 @@ static func start_fight(record: Dictionary, water: Dictionary) -> void:
 	record.fight_round = 0
 	record.fish_cue = cue_for(record, water)
 
-static func resolve_round(record: Dictionary, action: String, water: Dictionary) -> Dictionary:
-	if record.state != "hooked" or action not in FIGHT_ACTIONS:
-		return {"ok": false, "message": "Choose a valid action for a hooked fish."}
+static func resolve_round(record: Dictionary, action: String, water: Dictionary, drag: String = "balanced", overload_limit: int = OVERLOAD_LIMIT) -> Dictionary:
+	if record.state != "hooked" or action not in FIGHT_ACTIONS or drag not in DRAG_SETTINGS:
+		return {"ok": false, "message": "Choose a valid action and drag setting for a hooked fish."}
+	overload_limit = clampi(overload_limit, 450, OVERLOAD_LIMIT)
 	var stamina := int(record.fish_stamina)
 	var tension := int(record.line_tension)
 	var distance := int(record.fish_distance_cm)
@@ -208,11 +210,20 @@ static func resolve_round(record: Dictionary, action: String, water: Dictionary)
 				tension += 180
 				stamina -= 100
 				distance -= 20
+	match drag:
+		"loose":
+			tension -= 120
+			distance += 80
+			stamina += 35
+		"tight":
+			tension += 120
+			distance -= 80
+			stamina -= 35
 	record.fish_stamina = maxi(1, stamina)
 	record.line_tension = tension
 	record.fish_distance_cm = maxi(1, distance)
 	record.fight_round = int(record.fight_round) + 1
-	if tension >= OVERLOAD_LIMIT:
+	if tension >= overload_limit:
 		return {"ok": true, "status": "overload", "message": "The fish broke free under excessive line tension."}
 	if tension <= SLACK_LIMIT:
 		return {"ok": true, "status": "slack", "message": "The hook pulled free when the line went slack."}
