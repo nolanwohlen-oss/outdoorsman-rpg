@@ -6,7 +6,7 @@ Development v0.16.0. World schema remains 14 because Phase 2O activates the alre
 
 - Linked test line and reel now have persistent 0–1000 condition.
 - Every fish-fight choice applies deterministic line and reel wear from tension, action and fight load.
-- Overload explicitly breaks the linked line to 0/1000. A line or reel that reaches zero loses the fish and cannot be used to prepare another rig.
+- Overload explicitly breaks the linked line to 0/1000. A line or reel that reaches zero loses the fish and blocks a new rig until explicit recovery.
 - Tackle wear is resolved inside the same candidate-world transaction as the fight action. Validation failure leaves time, fish state and equipment unchanged.
 - Camp service preserves item identity and restores a bounded amount of condition: line +300 in 15 game minutes; reel +250 in 20 game minutes.
 - Camp replacement takes 10 game minutes, removes the selected line/reel identity and creates a new full-condition item ID. Replacement currently uses a free systems-lab spare; price, vendors and consumable replacement stock are deferred to the economy/item-content passes.
