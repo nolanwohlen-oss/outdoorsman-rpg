@@ -7,6 +7,7 @@ const CoastalEnvironment = preload("res://simulation/environment.gd")
 const Ecology = preload("res://simulation/ecology.gd")
 const Condition = preload("res://simulation/condition.gd")
 const Inventory = preload("res://simulation/inventory.gd")
+const Fishing = preload("res://simulation/fishing.gd")
 const MINUTE_MS := 60000
 const WAIT_MINUTES := [5, 15, 60]
 
@@ -30,6 +31,7 @@ func _init(initial_seed: int = 13092026) -> void:
 	world.ecology = Ecology.create(world.seed, world.game_time_ms)
 	world.condition = Condition.create(world.game_time_ms)
 	world.inventory = Inventory.create()
+	world.fishing = Fishing.create()
 	for kind in ["sunrise", "sunset", "midnight"]:
 		_queue(World.next_calendar_time(kind, world.game_time_ms), kind, "")
 	_log("world_started", "New world. Seed %d. Player at sandy shore." % world.seed)
@@ -198,6 +200,51 @@ func observe() -> Dictionary:
 	var env: Dictionary = world.environment
 	_log("observe", "At %s; %s; front %s; tide %s (%d cm); wind %.1f m/s; runoff %d/1000. CoastalEnvironment tick: %s." % [world.player_zone, light_state(), env.weather.front_state, env.tide.phase, env.tide.height_cm, float(env.weather.wind_deci_mps) / 10.0, env.runoff_permille, time_text(int(env.updated_at_ms))])
 	return {"ok": true, "message": "Observation added to the log."}
+
+func rig_fishing() -> Dictionary:
+	if world.player_zone == "elevated_camp" or not world.environment.water_by_zone[world.player_zone].water_present:
+		return _failure("Fishing requires a water zone.")
+	world.fishing = Fishing.create()
+	world.fishing.state = "rigged"
+	world.fishing.zone = world.player_zone
+	_log("fishing_rigged", "Rig prepared at %s." % world.player_zone)
+	return {"ok": true, "message": "Rig prepared."}
+
+func cast_fishing() -> Dictionary:
+	if world.fishing.state != "rigged" or world.fishing.zone != world.player_zone:
+		return _failure("Prepare a rig at your current water zone first.")
+	var choices: Array = []
+	for species in Fishing.SPECIES:
+		if int(world.ecology.populations[species].get(world.player_zone, 0)) > 0:
+			choices.append(species)
+	if choices.is_empty():
+		return _failure("No test population is present here.")
+	world.fishing.state = "cast"
+	world.fishing.target_species = choices[posmod(world.seed + world.game_time_ms, choices.size())]
+	world.fishing.bite_due_ms = world.game_time_ms + 15 * MINUTE_MS
+	_log("fishing_cast", "Cast into %s; bite window opens in 15 game minutes." % world.player_zone)
+	return {"ok": true, "message": "Cast complete. Check for a bite after 15 game minutes."}
+
+func hook_fishing() -> Dictionary:
+	if world.fishing.state != "cast":
+		return _failure("Nothing is waiting on the line.")
+	if world.game_time_ms < int(world.fishing.bite_due_ms):
+		return _failure("No bite yet; keep the line out.")
+	world.fishing.state = "hooked"
+	_log("fish_hooked", "Hook set on %s." % world.fishing.target_species)
+	return {"ok": true, "message": "Fish hooked: %s." % world.fishing.target_species}
+
+func land_fishing(retain: bool) -> Dictionary:
+	if world.fishing.state != "hooked":
+		return _failure("Set a hook before landing a fish.")
+	var species: String = world.fishing.target_species
+	if retain:
+		world.inventory.items.food_kcal += 250
+		world.inventory.items.food_kcal = mini(24000, world.inventory.items.food_kcal)
+	world.fishing.last_outcome = ("retained " if retain else "released ") + species
+	world.fishing.state = "idle"
+	_log("fish_landed", world.fishing.last_outcome.capitalize() + ".")
+	return {"ok": true, "message": "Fish %s: %s." % ["retained" if retain else "released", species]}
 
 func random_u31() -> int:
 	# Explicit stable stream; independent of Godot/global random state and UI refreshes.
