@@ -12,6 +12,7 @@ Development v0.18.0. World schema 15 / fishing record v6. This slice removes the
 - Hooking reveals the species and then enters the existing fight model unchanged. Historical direct `Set hook` test paths still resolve the due strike check internally so older gate fixtures remain compatible.
 - Waiting casts and developed strikes survive save/reload exactly. Phase 2P schema-14 saves migrate to schema 15 at the saved game time with no offline advancement. Existing cast/hooked Phase 2P encounters are preserved with a deterministic default presentation and strike cue.
 - Current-save validation rejects incompatible presentation/rig pairs and impossible strike-cue combinations.
+- Historical migration fixtures continue to model their original schemas exactly: v6-only fields are removed when constructing old records, so production migration remains strict about unknown legacy fields rather than silently accepting malformed saves.
 
 ## Systems-lab coefficients
 
