@@ -48,7 +48,7 @@ func _contracts() -> void:
 	bad.seed = true
 	mutations.append(bad)
 	bad = record.duplicate(true)
-	bad.schema_version = 8
+	bad.schema_version = 9
 	mutations.append(bad)
 	bad = record.duplicate(true)
 	bad.unknown_field = "must not silently discard"
@@ -170,10 +170,10 @@ func _actions() -> void:
 	check(not k.hook_fishing().ok, "A bite cannot be set before its deterministic window.")
 	k.advance_game_ms(15 * Kernel.MINUTE_MS)
 	check(k.hook_fishing().ok and k.world.fishing.state == "hooked", "The deterministic bite window produces a hookable encounter.")
-	var food_before: int = k.world.inventory.items.food_kcal
+	var fish_food_before: int = k.world.inventory.items.fish_food_g
 	var fish_species: String = k.world.fishing.target_species
 	var fish_before: int = int(k.world.ecology.populations[fish_species][k.world.player_zone])
-	check(k.land_fishing(true).ok and k.world.fishing.state == "idle" and k.world.inventory.items.food_kcal > food_before and k.world.fishing.retained_count == 1 and k.world.fishing.last_catch_weight_g >= 250 and int(k.world.ecology.populations[fish_species][k.world.player_zone]) == fish_before - 1, "Landing and retaining a fish records size, adds food, and removes one fish from the local population.")
+	check(k.land_fishing(true).ok and k.world.fishing.state == "idle" and k.world.inventory.items.fish_food_g > fish_food_before and k.world.inventory.items.food_kcal == 4000 and k.world.fishing.retained_count == 1 and k.world.fishing.last_catch_weight_g >= 250 and int(k.world.ecology.populations[fish_species][k.world.player_zone]) == fish_before - 1, "Landing and retaining a fish stores raw fish weight and removes one fish from the local population.")
 	k.move_plan("elevated_camp")
 	k.schedule_marker(600000, "stop here", true)
 	k.schedule_marker(600000, "same instant")
