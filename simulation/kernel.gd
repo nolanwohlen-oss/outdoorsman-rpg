@@ -231,6 +231,7 @@ func hook_fishing() -> Dictionary:
 	if world.game_time_ms < int(world.fishing.bite_due_ms):
 		return _failure("No bite yet; keep the line out.")
 	world.fishing.state = "hooked"
+	world.fishing.last_catch_weight_g = 250 + posmod(world.seed + world.game_time_ms + world.player_zone.length() * 31, 1750)
 	_log("fish_hooked", "Hook set on %s." % world.fishing.target_species)
 	return {"ok": true, "message": "Fish hooked: %s." % world.fishing.target_species}
 
@@ -238,10 +239,20 @@ func land_fishing(retain: bool) -> Dictionary:
 	if world.fishing.state != "hooked":
 		return _failure("Set a hook before landing a fish.")
 	var species: String = world.fishing.target_species
+	var weight: int = int(world.fishing.last_catch_weight_g)
 	if retain:
-		world.inventory.items.food_kcal += 250
+		var available: int = int(world.ecology.populations[species].get(world.player_zone, 0))
+		if available <= 0:
+			return _failure("The fish was lost before landing.")
+		world.ecology.populations[species][world.player_zone] = available - 1
+		world.fishing.retained_count += 1
+		world.inventory.items.food_kcal += maxi(50, int(weight / 4))
 		world.inventory.items.food_kcal = mini(24000, world.inventory.items.food_kcal)
-	world.fishing.last_outcome = ("retained " if retain else "released ") + species
+	else:
+		world.fishing.released_count += 1
+	world.condition.energy = maxi(0, int(world.condition.energy) - 3)
+	world.condition.hydration = maxi(0, int(world.condition.hydration) - 1)
+	world.fishing.last_outcome = ("retained " if retain else "released ") + "%s (%dg)" % [species, weight]
 	world.fishing.state = "idle"
 	_log("fish_landed", world.fishing.last_outcome.capitalize() + ".")
 	return {"ok": true, "message": "Fish %s: %s." % ["retained" if retain else "released", species]}
