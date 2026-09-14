@@ -240,7 +240,9 @@ func _build_interface() -> void:
 	layout.add_child(_label(build, 18, MUTED))
 	new_world_dialog = ConfirmationDialog.new()
 	new_world_dialog.title = "Start a new test world?"
-	new_world_dialog.dialog_text = "Current progress and autosave will be replaced. Your manual save remains until you save over it."
+	new_world_dialog.dialog_text = "Replace current progress? Your manual save stays."
+	new_world_dialog.get_label().autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	new_world_dialog.get_label().custom_minimum_size = Vector2(520, 72)
 	new_world_dialog.get_ok_button().text = "New world"
 	new_world_dialog.confirmed.connect(_new_world)
 	add_child(new_world_dialog)
@@ -493,7 +495,7 @@ func _observe() -> void:
 
 func _move_to(destination: String) -> void:
 	if _can_act():
-		var result := kernel.move(destination)
+		var result := kernel.move_plan(destination) if destination == "elevated_camp" else kernel.move(destination)
 		if result.ok:
 			selected_zone_id = destination
 		_after_action(result)
