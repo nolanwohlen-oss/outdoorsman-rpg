@@ -216,7 +216,7 @@ func _build_interface() -> void:
 	add_child(margin)
 	var layout := _column(margin, 8)
 	layout.add_child(_label("OUTDOORSMAN", 34))
-	layout.add_child(_label("SYSTEMS LAB  /  PHASE 2N", 20, ACCENT))
+	layout.add_child(_label("SYSTEMS LAB  /  PHASE 2O", 20, ACCENT))
 	clock_label = _label("", 30)
 	calendar_label = _label("", 21, MUTED)
 	location_label = _label("", 23, ACCENT)
@@ -241,11 +241,11 @@ func _build_interface() -> void:
 	status_label = _label("", 21, ACCENT)
 	status_label.max_lines_visible = 4
 	layout.add_child(status_label)
-	var build := "v0.15.0 · local build"
+	var build := "v0.16.0 · local build"
 	if FileAccess.file_exists("res://config/build_info.json"):
 		var info = JSON.parse_string(FileAccess.get_file_as_string("res://config/build_info.json"))
 		if info is Dictionary:
-			build = "v%s · build %s · %s" % [str(info.get("version", "0.15.0")), str(info.get("number", "local")).trim_suffix(".0"), info.get("commit", "unknown")]
+			build = "v%s · build %s · %s" % [str(info.get("version", "0.16.0")), str(info.get("number", "local")).trim_suffix(".0"), info.get("commit", "unknown")]
 	layout.add_child(_label(build, 18, MUTED))
 	new_world_dialog = ConfirmationDialog.new()
 	new_world_dialog.title = "Start a new test world?"
@@ -399,12 +399,14 @@ func _build_layers(column: VBoxContainer) -> void:
 	column.add_child(item_details)
 	_button(column, "Store selected item at camp", _transfer_item.bind("camp"))
 	_button(column, "Take selected item into pack", _transfer_item.bind("pack"))
+	_button(column, "Service selected line/reel", _service_tackle)
+	_button(column, "Replace selected line/reel · 10 min", _replace_tackle)
 	_button(column, "Clean selected fish · 10 min", _use_item.bind("clean"))
 	_button(column, "Prepare selected fish as bait · 5 min", _use_item.bind("bait"))
 	_button(column, "Cook selected fish · 15 min · 1 wood", _use_item.bind("cook"))
 	_button(column, "Eat up to 250 g cooked fish · 5 min", _use_item.bind("eat"))
 	column.add_child(_label("Preparation uses the test camp work area and hearth. Cleaning keeps 60% of mass; cooking uses one firewood unit. Raw fish and cut bait cannot be eaten.", 20, MUTED))
-	column.add_child(_label("Transfers require camp. Select any item to inspect it. Fish remain resources, not ration calories. Condition is recorded but spoilage is not simulated yet.", 20, MUTED))
+	column.add_child(_label("Transfers require camp. Select any item to inspect it. Fish remain resources, not ration calories. Line and reel condition now wear during fights; service preserves identity, replacement creates a new item ID. Replacement cost is a test placeholder until economy exists.", 20, MUTED))
 	column.add_child(HSeparator.new())
 	column.add_child(_label("Simulation roadmap", 28, ACCENT))
 	column.add_child(_label("Active prototypes: clock, travel, weather/water, population ledger, condition, fishing, physical item records, pack/cache storage and saves. These are simplified test layers.", 23))
@@ -521,6 +523,16 @@ func _use_item(action: String) -> void:
 	if not _can_act() or item_picker.selected < 0:
 		return
 	_after_action(kernel.use_inventory(str(item_picker.get_item_metadata(item_picker.selected)), action))
+
+func _service_tackle() -> void:
+	if not _can_act() or item_picker.selected < 0:
+		return
+	_after_action(kernel.service_tackle(str(item_picker.get_item_metadata(item_picker.selected))))
+
+func _replace_tackle() -> void:
+	if not _can_act() or item_picker.selected < 0:
+		return
+	_after_action(kernel.replace_tackle(str(item_picker.get_item_metadata(item_picker.selected))))
 
 func _zone_name(zone_id: String) -> String:
 	for zone in catalog.zones:

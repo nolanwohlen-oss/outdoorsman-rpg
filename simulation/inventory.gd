@@ -10,6 +10,7 @@ const CONTAINERS := {"pack": 15000, "camp": 50000}
 # wood/bait, and grams for unidentified historical fish. Mass is separate.
 const DEFINITIONS := {"water_ml": [1, 1], "food_kcal": [1, 4], "firewood_units": [100, 1], "bait_units": [50, 1], "legacy_fish": [1, 1], "whole_fish": [1, 1], "cleaned_fish": [1, 1], "cooked_fish": [1, 1], "cut_bait": [1, 1], "test_rod": [300, 1], "test_spoon": [20, 1], "test_hook": [5, 1], "test_reel": [260, 1], "test_line": [50, 1]}
 const TEST_EQUIPMENT := ["test_rod", "test_spoon", "test_hook", "test_reel", "test_line"]
+const TRACKED_TACKLE := ["test_reel", "test_line"]
 const PRODUCTS := ["cleaned_fish", "cooked_fish", "cut_bait"]
 
 static func use_item(record: Dictionary, id: String, action: String, zone: String) -> Dictionary:
@@ -88,7 +89,7 @@ static func ensure_test_equipment(record: Dictionary) -> void:
 				break
 		if not found:
 			var container := "pack" if total_weight_g(record) + _mass(kind, 1) <= CAPACITY_G else "camp"
-			_insert(record, kind, 1, container, "", 0, "", -1)
+			_insert(record, kind, 1, container, "", 0, "", 1000 if kind in TRACKED_TACKLE else -1)
 
 static func carried_id(record: Dictionary, kind: String) -> String:
 	var ids: Array = record.entries.keys()
@@ -97,6 +98,60 @@ static func carried_id(record: Dictionary, kind: String) -> String:
 		if record.entries[id].container == "pack" and record.entries[id].kind == kind:
 			return id
 	return ""
+
+static func tackle_condition(record: Dictionary, id: String) -> int:
+	var entry: Variant = record.entries.get(id)
+	if not entry is Dictionary or entry.kind not in TRACKED_TACKLE:
+		return -1
+	# -1 is the legacy Phase 2N sentinel. The first 2O tackle action materializes it as pristine.
+	return 1000 if int(entry.condition) < 0 else int(entry.condition)
+
+static func initialize_tackle(record: Dictionary, id: String) -> Dictionary:
+	var entry: Variant = record.entries.get(id)
+	if not entry is Dictionary or entry.kind not in TRACKED_TACKLE:
+		return {"ok": false, "message": "Select a tracked line or reel."}
+	if int(entry.condition) < 0:
+		entry.condition = 1000
+	return {"ok": true, "condition": int(entry.condition)}
+
+static func apply_tackle_wear(record: Dictionary, line_id: String, reel_id: String, line_wear: int, reel_wear: int, break_line: bool = false) -> Dictionary:
+	var line_init := initialize_tackle(record, line_id)
+	var reel_init := initialize_tackle(record, reel_id)
+	if not line_init.ok or not reel_init.ok or line_wear < 0 or reel_wear < 0:
+		return {"ok": false, "message": "Linked tackle condition cannot be updated."}
+	var line: Dictionary = record.entries[line_id]
+	var reel: Dictionary = record.entries[reel_id]
+	line.condition = 0 if break_line else maxi(0, int(line.condition) - line_wear)
+	reel.condition = maxi(0, int(reel.condition) - reel_wear)
+	var broken := ""
+	if int(line.condition) == 0:
+		broken = "line"
+	elif int(reel.condition) == 0:
+		broken = "reel"
+	return {"ok": true, "line": int(line.condition), "reel": int(reel.condition), "broken": broken}
+
+static func service_tackle(record: Dictionary, id: String) -> Dictionary:
+	var init := initialize_tackle(record, id)
+	if not init.ok:
+		return init
+	var entry: Dictionary = record.entries[id]
+	var before := int(entry.condition)
+	if before >= 1000:
+		return {"ok": false, "message": "Selected tackle is already at full condition."}
+	var restored := 300 if entry.kind == "test_line" else 250
+	var minutes := 15 if entry.kind == "test_line" else 20
+	entry.condition = mini(1000, before + restored)
+	return {"ok": true, "minutes": minutes, "before": before, "after": int(entry.condition), "message": "Serviced %s from %d to %d / 1000." % [id, before, int(entry.condition)]}
+
+static func replace_tackle(record: Dictionary, id: String) -> Dictionary:
+	var entry: Variant = record.entries.get(id)
+	if not entry is Dictionary or entry.kind not in TRACKED_TACKLE:
+		return {"ok": false, "message": "Select a tracked line or reel."}
+	var kind: String = entry.kind
+	var container: String = entry.container
+	record.entries.erase(id)
+	var new_id := _insert(record, kind, 1, container, "", 0, "", 1000)
+	return {"ok": true, "minutes": 10, "old_id": id, "new_id": new_id, "message": "Replaced %s with %s at full condition." % [id, new_id]}
 
 static func _mass(kind: String, quantity: int) -> int:
 	return int(ceil(float(quantity * int(DEFINITIONS[kind][0])) / int(DEFINITIONS[kind][1])))
@@ -187,6 +242,10 @@ static func validate(record: Variant, now_ms: int = 3153600000000, legacy_v3: bo
 		elif e.kind == "whole_fish":
 			if e.quantity != 1 or e.species not in Ecology.SPECIES or e.origin not in Map.ZONE_IDS or e.condition < 0:
 				return PackedStringArray(["Invalid individual fish provenance."])
+		elif e.kind in TRACKED_TACKLE:
+			# -1 remains accepted only as the pristine legacy sentinel from Phase 2N saves.
+			if e.mass_g != _mass(e.kind, int(e.quantity)) or e.species != "" or e.origin != "" or e.caught_ms != 0:
+				return PackedStringArray(["Invalid tracked tackle record."])
 		elif e.mass_g != _mass(e.kind, int(e.quantity)) or e.species != "" or e.origin != "" or e.caught_ms != 0 or e.condition != -1:
 			return PackedStringArray(["Invalid supply mass or fabricated provenance."])
 	for container in CONTAINERS:
