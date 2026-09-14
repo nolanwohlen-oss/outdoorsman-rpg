@@ -2,7 +2,7 @@
 
 An Android outdoor survival RPG, beginning with a small laboratory for its simulation systems.
 
-**Current milestone: Phase 2I — physical inventory foundation (schema 9, development v0.10.0).** Supplies have stable stack IDs; new fish have individual records with species, mass, catch time and origin. Pack and camp cache have separate capacity limits and explicit transfers. Old pooled fish migrate as unidentified legacy fish, never invented catches. Equipment, processing, spoilage and detailed container physics remain later work. See [Phase 2I scope and phone test](docs/PHASE_2I.md).
+**Current milestone: Phase 2J — explicit fish uses (schema 10, development v0.11.0).** Select fish in Layers to clean, prepare cut bait, cook using firewood, or eat a cooked portion. Actions spend game time and preserve catch provenance; rejected actions do not change state. Fish never automatically become food. See [Phase 2J scope and phone test](docs/PHASE_2J.md).
 
 The Phase 2A delivery spans the minimum contracts, clock and early persistence from the longer roadmap. Phase 2B adds map/habitat access; Phase 2C adds the first environmental integration test, not the complete weather framework. See [Phase 2A](docs/PHASE_2A.md), [Phase 2B](docs/PHASE_2B.md) and [Phase 2C contracts and limits](docs/PHASE_2C.md).
 

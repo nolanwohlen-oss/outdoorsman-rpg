@@ -580,6 +580,7 @@ func _environment_migrations() -> void:
 	check(not World.migrate_record(limit).ok, "Migration never repairs invalid legacy calendar events.")
 
 func _inventory_records() -> void:
+	_fish_uses()
 	var k := Kernel.new(42)
 	check(Inventory.total_weight_g(k.world.inventory) == 4200, "Ration mass is separate from calories.")
 	var result := Inventory.add_fish(k.world.inventory, "mullet", 800, k.world.game_time_ms, k.world.player_zone)
@@ -625,6 +626,57 @@ func _inventory_records() -> void:
 	var extra := Inventory.add_fish(k.world.inventory, "mullet", 100, k.world.game_time_ms, k.world.player_zone)
 	before = k.world.to_record()
 	check(not k.transfer_inventory(extra.id, "camp").ok and k.world.to_record() == before, "Full cache rejects transfer atomically.")
+
+func _fish_uses() -> void:
+	var k := Kernel.new(42)
+	var caught := Inventory.add_fish(k.world.inventory, "mullet", 1000, k.world.game_time_ms, k.world.player_zone)
+	var id: String = caught.id
+	var original: Dictionary = k.world.inventory.entries[id].duplicate(true)
+	var before := k.world.to_record()
+	check(not k.use_inventory(id, "eat").ok and k.world.to_record() == before, "Raw fish cannot be eaten and rejection is atomic.")
+	check(not k.use_inventory(id, "clean").ok and k.world.to_record() == before, "Preparation requires camp.")
+	k.move_plan("elevated_camp")
+	var start: int = k.world.game_time_ms
+	check(k.use_inventory(id, "clean").ok and k.world.game_time_ms == start + 10 * Kernel.MINUTE_MS, "Cleaning spends ten game minutes.")
+	check(k.world.inventory.entries[id].mass_g == 600 and k.world.inventory.entries[id].kind == "cleaned_fish", "Cleaning has an explicit bounded yield.")
+	check(k.world.inventory.entries[id].caught_ms == original.caught_ms and k.world.inventory.entries[id].species == original.species, "Processing retains source identity and provenance.")
+	var wood := Inventory.quantity(k.world.inventory, "firewood_units")
+	start = k.world.game_time_ms
+	check(k.use_inventory(id, "cook").ok and k.world.game_time_ms == start + 15 * Kernel.MINUTE_MS and Inventory.quantity(k.world.inventory, "firewood_units") == wood - 1, "Cooking spends time and one wood unit.")
+	check(Inventory.quantity(k.world.inventory, "food_kcal") == 4000, "Prepared fish remains separate from ration counters.")
+	k.world.condition.energy = 400
+	start = k.world.game_time_ms
+	check(k.use_inventory(id, "eat").ok and k.world.game_time_ms == start + 5 * Kernel.MINUTE_MS and k.world.inventory.entries[id].mass_g == 350 and k.world.condition.energy > 400, "Eating consumes a 250 g portion and restores test energy.")
+	var loaded := Kernel.new(99)
+	check(loaded.restore(JSON.parse_string(JSON.stringify(k.world.to_record()))).ok and same(k, loaded), "Partially consumed products persist exactly.")
+	check(k.use_inventory(id, "eat").ok and k.use_inventory(id, "eat").ok and not k.world.inventory.entries.has(id), "Last serving removes the depleted record.")
+	before = k.world.to_record()
+	check(not k.use_inventory(id, "eat").ok and k.world.to_record() == before, "Consumed fish cannot be reused.")
+	caught = Inventory.add_fish(k.world.inventory, "mullet", 800, k.world.game_time_ms, k.world.player_zone)
+	id = caught.id
+	check(k.use_inventory(id, "bait").ok and k.world.inventory.entries[id].mass_g == 800, "Bait preparation preserves material mass.")
+	before = k.world.to_record()
+	check(not k.use_inventory(id, "eat").ok and k.world.to_record() == before, "Cut bait is not food.")
+	caught = Inventory.add_fish(k.world.inventory, "mullet", 800, k.world.game_time_ms, k.world.player_zone)
+	id = caught.id
+	k.schedule_marker(Kernel.MINUTE_MS, "Stop preparation", true)
+	before = k.world.to_record()
+	check(not k.use_inventory(id, "clean").ok and k.world.to_record() == before, "Interrupted preparation spends no resources or time.")
+	k.wait_minutes(5)
+	check(k.use_inventory(id, "clean").ok, "Preparation can resume after the blocking event is handled.")
+	for key in k.world.inventory.entries.keys():
+		if k.world.inventory.entries[key].kind == "firewood_units":
+			k.world.inventory.entries.erase(key)
+	before = k.world.to_record()
+	check(not k.use_inventory(id, "cook").ok and k.world.to_record() == before, "Missing fuel rejects cooking atomically.")
+	var legacy := k.world.to_record()
+	legacy.schema_version = 9
+	legacy.inventory.version = 3
+	for key in legacy.inventory.entries.keys():
+		if legacy.inventory.entries[key].kind in Inventory.PRODUCTS:
+			legacy.inventory.entries.erase(key)
+	var upgraded := World.migrate_record(legacy)
+	check(upgraded.ok and upgraded.record.inventory.entries == legacy.inventory.entries and upgraded.record.inventory.next_id == legacy.inventory.next_id, "Schema 9 migration preserves physical items and ID sequence.")
 
 func _audit_regressions() -> void:
 	_inventory_records()

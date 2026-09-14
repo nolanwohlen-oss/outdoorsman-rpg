@@ -278,6 +278,31 @@ func transfer_inventory(id: String, destination: String) -> Dictionary:
 		_log("observe", result.message)
 	return result
 
+func use_inventory(id: String, action: String) -> Dictionary:
+	if world.fishing.state in ["cast", "hooked"]:
+		return _failure("Finish or cancel fishing before handling resources.")
+	# Evaluate time, events and resources together before committing any state.
+	var candidate = get_script().new(world.seed)
+	var restored: Dictionary = candidate.restore(world.to_record())
+	if not restored.ok:
+		return _failure("Cannot start action from invalid world state.")
+	var result := Inventory.use_item(candidate.world.inventory, id, action, world.player_zone)
+	if not result.ok:
+		return result
+	var duration: int = int(result.minutes) * MINUTE_MS
+	if world.game_time_ms > World.MAX_TIME_MS - duration:
+		return _failure("Action exceeds the supported clock range.")
+	var elapsed: Dictionary = candidate._advance(duration, true)
+	if not elapsed.ok or elapsed.interrupted:
+		return _failure("A scheduled interruption blocks this action. Wait through it before retrying; no resources or time were spent.")
+	candidate.world.condition.energy = mini(1000, int(candidate.world.condition.energy) + int(result.energy))
+	candidate._log("observe", result.message)
+	var errors := World.validate(candidate.world.to_record())
+	if not errors.is_empty():
+		return _failure("Action validation failed; world unchanged.")
+	world = candidate.world
+	return {"ok": true, "message": result.message}
+
 func cancel_fishing() -> Dictionary:
 	if not world.fishing.state in ["cast", "hooked", "rigged"]:
 		return _failure("No fishing encounter to cancel.")

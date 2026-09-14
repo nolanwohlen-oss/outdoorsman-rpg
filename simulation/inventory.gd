@@ -1,14 +1,69 @@
 extends RefCounted
 ## Versioned physical records. Commands must preserve identity and mass.
 
-const VERSION := 3
+const VERSION := 4
 const CAPACITY_G := 15000
 const Ecology = preload("res://simulation/ecology.gd")
 const Map = preload("res://simulation/testbed_map.gd")
 const CONTAINERS := {"pack": 15000, "camp": 50000}
 # Quantities are mL for water, kcal for legacy ration compatibility, units for
 # wood/bait, and grams for unidentified historical fish. Mass is separate.
-const DEFINITIONS := {"water_ml": [1, 1], "food_kcal": [1, 4], "firewood_units": [100, 1], "bait_units": [50, 1], "legacy_fish": [1, 1], "whole_fish": [1, 1]}
+const DEFINITIONS := {"water_ml": [1, 1], "food_kcal": [1, 4], "firewood_units": [100, 1], "bait_units": [50, 1], "legacy_fish": [1, 1], "whole_fish": [1, 1], "cleaned_fish": [1, 1], "cooked_fish": [1, 1], "cut_bait": [1, 1]}
+const PRODUCTS := ["cleaned_fish", "cooked_fish", "cut_bait"]
+
+static func use_item(record: Dictionary, id: String, action: String, zone: String) -> Dictionary:
+	# Called on a private transaction copy by the kernel.
+	if not record.entries.has(id):
+		return {"ok": false, "message": "Select an existing item."}
+	var e: Dictionary = record.entries[id]
+	if e.container == "camp" and zone != "elevated_camp":
+		return {"ok": false, "message": "Return to camp to access this item."}
+	if action in ["clean", "bait", "cook"] and zone != "elevated_camp":
+		return {"ok": false, "message": "Preparation requires the camp work area."}
+	var energy := 0
+	var minutes := 0
+	var detail := ""
+	if action == "clean" and e.kind in ["whole_fish", "legacy_fish"]:
+		var initial := int(e.mass_g)
+		e.mass_g = maxi(1, int(initial * 0.6))
+		e.quantity = 1
+		e.kind = "cleaned_fish"
+		minutes = 10
+		detail = "Cleaned %s: %d g fish, %d g processing waste removed." % [id, e.mass_g, initial - int(e.mass_g)]
+	elif action == "bait" and e.kind in ["whole_fish", "legacy_fish", "cleaned_fish"]:
+		e.kind = "cut_bait"
+		e.quantity = 1
+		minutes = 5
+		detail = "Prepared %s as %d g cut bait. No food added." % [id, e.mass_g]
+	elif action == "cook" and e.kind == "cleaned_fish":
+		var fuel_id := ""
+		var ids: Array = record.entries.keys()
+		ids.sort()
+		for candidate in ids:
+			if record.entries[candidate].kind == "firewood_units":
+				fuel_id = candidate
+				break
+		if fuel_id == "":
+			return {"ok": false, "message": "Cooking requires one firewood unit."}
+		var fuel: Dictionary = record.entries[fuel_id]
+		fuel.quantity -= 1
+		fuel.mass_g -= 100
+		if fuel.quantity == 0:
+			record.entries.erase(fuel_id)
+		e.kind = "cooked_fish"
+		minutes = 15
+		detail = "Cooked %s using 100 g firewood at the test camp hearth." % id
+	elif action == "eat" and e.kind == "cooked_fish":
+		var serving := mini(250, int(e.mass_g))
+		energy = maxi(1, int(serving / 2))
+		e.mass_g -= serving
+		if e.mass_g == 0:
+			record.entries.erase(id)
+		minutes = 5
+		detail = "Ate %d g from %s." % [serving, id]
+	else:
+		return {"ok": false, "message": "That use is unavailable for this item. Clean raw fish before cooking; only cooked fish can be eaten."}
+	return {"ok": true, "message": detail, "minutes": minutes, "energy": energy}
 
 static func create() -> Dictionary:
 	return migrate({"items": {"water_ml": 2000, "food_kcal": 4000, "firewood_units": 12, "bait_units": 0, "fish_food_g": 0}})
@@ -73,10 +128,11 @@ static func transfer(record: Dictionary, id: String, destination: String, zone: 
 static func _integer(value: Variant, minimum: int, maximum: int) -> bool:
 	return typeof(value) in [TYPE_INT, TYPE_FLOAT] and is_finite(float(value)) and value == floor(value) and value >= minimum and value <= maximum
 
-static func validate(record: Variant, now_ms: int = 3153600000000) -> PackedStringArray:
+static func validate(record: Variant, now_ms: int = 3153600000000, legacy_v3: bool = false) -> PackedStringArray:
 	if not record is Dictionary or record.size() != 3 or not record.has_all(["version", "next_id", "entries"]):
 		return PackedStringArray(["Invalid physical inventory fields."])
-	if not _integer(record.version, VERSION, VERSION) or not _integer(record.next_id, 1, 2147483647) or not record.entries is Dictionary or record.entries.size() > 1000:
+	var expected := 3 if legacy_v3 else VERSION
+	if not _integer(record.version, expected, expected) or not _integer(record.next_id, 1, 2147483647) or not record.entries is Dictionary or record.entries.size() > 1000:
 		return PackedStringArray(["Invalid physical inventory header."])
 	for id in record.entries:
 		if not id is String or not id.begins_with("item_") or not id.trim_prefix("item_").is_valid_int():
@@ -91,7 +147,14 @@ static func validate(record: Variant, now_ms: int = 3153600000000) -> PackedStri
 			return PackedStringArray(["Invalid item definition or location."])
 		if not _integer(e.quantity, 1, 200000) or not _integer(e.mass_g, 1, 65000) or not _integer(e.condition, -1, 1000) or not _integer(e.caught_ms, 0, now_ms):
 			return PackedStringArray(["Invalid item quantity, mass, condition or time."])
-		if e.kind == "whole_fish":
+		if legacy_v3 and e.kind in PRODUCTS:
+			return PackedStringArray(["Product is not supported by the old inventory version."])
+		if e.kind in PRODUCTS:
+			var known: bool = e.species in Ecology.SPECIES and e.origin in Map.ZONE_IDS and e.condition >= 0
+			var unknown: bool = e.species == "" and e.origin == "" and e.caught_ms == 0 and e.condition == -1
+			if e.quantity != 1 or not (known or unknown):
+				return PackedStringArray(["Invalid processed fish provenance."])
+		elif e.kind == "whole_fish":
 			if e.quantity != 1 or e.species not in Ecology.SPECIES or e.origin not in Map.ZONE_IDS or e.condition < 0:
 				return PackedStringArray(["Invalid individual fish provenance."])
 		elif e.mass_g != _mass(e.kind, int(e.quantity)) or e.species != "" or e.origin != "" or e.caught_ms != 0 or e.condition != -1:
