@@ -2,7 +2,7 @@
 
 An Android outdoor survival RPG, beginning with a small laboratory for its simulation systems.
 
-**Current milestone: Phase 2M — fish-fight and landing causality (schema 13, development v0.14.0).** Hooked fish now have persistent stamina, distance, line tension and visible behavior cues. Timed player choices can reach landing range or cause an explicit overload, slack-line or cover loss. The physical starter rig now includes a test reel and line. See [Phase 2M scope and phone test](docs/PHASE_2M.md).
+**Current milestone: Phase 2N — landing methods and catch condition (schema 14, development v0.15.0).** Hooked fish now end through explicit hand, net or retain-only gaff handling, with deterministic time costs and saved post-catch/release condition. See [Phase 2N scope and phone test](docs/PHASE_2N.md).
 
 The Phase 2A delivery spans the minimum contracts, clock and early persistence from the longer roadmap. Phase 2B adds map/habitat access; Phase 2C adds the first environmental integration test, not the complete weather framework. See [Phase 2A](docs/PHASE_2A.md), [Phase 2B](docs/PHASE_2B.md) and [Phase 2C contracts and limits](docs/PHASE_2C.md).
 
@@ -12,7 +12,7 @@ The Phase 2A delivery spans the minimum contracts, clock and early persistence f
 2. Open the newest successful run for `main`.
 3. Scroll to **Artifacts** and download **outdoorsman-android-debug**.
 4. Extract the downloaded ZIP in your phone's Files app and open `outdoorsman-test.apk`. Allow that app to install this APK if Android asks.
-5. Launch **Outdoorsman Systems Lab**. Use **Env** to inspect conditions, **Map** for route access, and **Clock** to wait/save/load. Follow the current [Phase 2M phone checklist](docs/PHASE_2M.md); the longer [foundation regression checklist](docs/PHONE_TESTING.md) remains available when needed.
+5. Launch **Outdoorsman Systems Lab**. Use **Env** to inspect conditions, **Map** for route access, and **Clock** to wait/save/load. Follow the current [Phase 2N phone checklist](docs/PHASE_2N.md); the longer [foundation regression checklist](docs/PHONE_TESTING.md) remains available when needed.
 
 This is a development APK, not a Google Play release. No Windows PC, Google Play developer account, advertising account, or payment setup is needed for this milestone. See [phone testing](docs/PHONE_TESTING.md) for the checklist and build troubleshooting.
 

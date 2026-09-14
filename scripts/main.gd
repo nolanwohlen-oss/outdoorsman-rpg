@@ -216,7 +216,7 @@ func _build_interface() -> void:
 	add_child(margin)
 	var layout := _column(margin, 8)
 	layout.add_child(_label("OUTDOORSMAN", 34))
-	layout.add_child(_label("SYSTEMS LAB  /  PHASE 2M", 20, ACCENT))
+	layout.add_child(_label("SYSTEMS LAB  /  PHASE 2N", 20, ACCENT))
 	clock_label = _label("", 30)
 	calendar_label = _label("", 21, MUTED)
 	location_label = _label("", 23, ACCENT)
@@ -241,11 +241,11 @@ func _build_interface() -> void:
 	status_label = _label("", 21, ACCENT)
 	status_label.max_lines_visible = 4
 	layout.add_child(status_label)
-	var build := "v0.14.0 · local build"
+	var build := "v0.15.0 · local build"
 	if FileAccess.file_exists("res://config/build_info.json"):
 		var info = JSON.parse_string(FileAccess.get_file_as_string("res://config/build_info.json"))
 		if info is Dictionary:
-			build = "v%s · build %s · %s" % [str(info.get("version", "0.14.0")), str(info.get("number", "local")).trim_suffix(".0"), info.get("commit", "unknown")]
+			build = "v%s · build %s · %s" % [str(info.get("version", "0.15.0")), str(info.get("number", "local")).trim_suffix(".0"), info.get("commit", "unknown")]
 	layout.add_child(_label(build, 18, MUTED))
 	new_world_dialog = ConfirmationDialog.new()
 	new_world_dialog.title = "Start a new test world?"
@@ -276,9 +276,11 @@ func _build_clock(column: VBoxContainer) -> void:
 	fight_buttons.append(_button(row, "Give line", _fish_fight.bind("give_line")))
 	fight_buttons.append(_button(row, "Hold pressure", _fish_fight.bind("pressure")))
 	fight_buttons.append(_button(column, "Reel in", _fish_fight.bind("reel")))
-	row = _row(column)
-	land_buttons.append(_button(row, "Land and retain", _fish_land.bind(true)))
-	land_buttons.append(_button(row, "Land and release", _fish_land.bind(false)))
+	column.add_child(_label("Landing method: hand is fastest but rougher; net preserves condition; gaff is retain-only.", 19, MUTED))
+	for method in Fishing.LANDING_METHODS:
+		row = _row(column)
+		land_buttons.append(_button(row, "%s · retain" % method.capitalize(), _fish_land.bind(true, method)))
+		land_buttons.append(_button(row, "%s · release" % method.capitalize(), _fish_land.bind(false, method)))
 	_button(column, "Cancel fishing", _fish_cancel)
 	column.add_child(_label("Safe waiting", 27, ACCENT))
 	safe_wait_label = _label("", 22, MUTED)
@@ -462,7 +464,7 @@ func _refresh() -> void:
 		var f: Dictionary = kernel.world.fishing
 		var ready := Fishing.landing_ready(f)
 		if f.state == "hooked":
-			fishing_status.text = "HOOKED: %s · %d g\nCue: %s\nFish stamina: %d · Line tension: %d / 1000\nDistance: %.1f m · Fight choices: %d\n%s\nRetained %d · Released %d · Lost %d" % [String(f.target_species).replace("_", " ").capitalize(), f.last_catch_weight_g, String(f.fish_cue).to_upper(), f.fish_stamina, f.line_tension, float(f.fish_distance_cm) / 100.0, f.fight_round, "READY TO LAND" if ready else "Keep fighting", f.retained_count, f.released_count, f.lost_count]
+			fishing_status.text = "HOOKED: %s · %d g\nCue: %s\nFish stamina: %d · Line tension: %d / 1000\nDistance: %.1f m · Fight choices: %d\n%s\nRetained %d · Released %d · Lost %d\nLast handling: %s · condition %d/1000" % [String(f.target_species).replace("_", " ").capitalize(), f.last_catch_weight_g, String(f.fish_cue).to_upper(), f.fish_stamina, f.line_tension, float(f.fish_distance_cm) / 100.0, f.fight_round, "READY TO LAND" if ready else "Keep fighting", f.retained_count, f.released_count, f.lost_count, f.last_handling_method if not f.last_handling_method.is_empty() else "none", f.last_handling_condition]
 		else:
 			fishing_status.text = "State: %s · Rig: %s\nTarget: %s · Bite: %s\nRetained %d · Released %d · Lost %d" % [f.state, f.rig_mode, f.target_species if not f.target_species.is_empty() else "none", Kernel.time_text(int(f.bite_due_ms)) if f.state == "cast" else "not waiting", f.retained_count, f.released_count, f.lost_count]
 		for button in fight_buttons:
@@ -629,9 +631,9 @@ func _fish_fight(action: String) -> void:
 	if _can_act():
 		_after_action(kernel.fight_fishing(action))
 
-func _fish_land(retain: bool) -> void:
+func _fish_land(retain: bool, method: String) -> void:
 	if _can_act():
-		_after_action(kernel.land_fishing(retain))
+		_after_action(kernel.land_fishing(retain, method))
 
 func _move_to(destination: String) -> void:
 	if _can_act():

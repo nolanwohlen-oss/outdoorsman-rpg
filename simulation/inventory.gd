@@ -124,12 +124,12 @@ static func quantity(record: Dictionary, kind: String, container: String = "pack
 				total += int(entry.quantity)
 	return total
 
-static func add_fish(record: Dictionary, species: String, mass_g: int, caught_ms: int, origin: String) -> Dictionary:
-	if species not in Ecology.SPECIES or origin not in Map.ZONE_IDS or not _integer(caught_ms, 0, 3153600000000) or mass_g <= 0:
+static func add_fish(record: Dictionary, species: String, mass_g: int, caught_ms: int, origin: String, condition: int = 1000) -> Dictionary:
+	if species not in Ecology.SPECIES or origin not in Map.ZONE_IDS or not _integer(caught_ms, 0, 3153600000000) or not _integer(condition, 0, 1000) or mass_g <= 0:
 		return {"ok": false, "message": "Invalid catch record."}
 	if record.entries.size() >= 1000 or int(record.next_id) >= 2147483647 or total_weight_g(record) + mass_g > CAPACITY_G:
 		return {"ok": false, "message": "Pack capacity reached."}
-	var id := _insert(record, "whole_fish", mass_g, "pack", species, caught_ms, origin, 1000)
+	var id := _insert(record, "whole_fish", mass_g, "pack", species, caught_ms, origin, condition)
 	# A whole fish is an individual, not a stack of grams.
 	record.entries[id].quantity = 1
 	return {"ok": true, "id": id}

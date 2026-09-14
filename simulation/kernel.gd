@@ -318,46 +318,56 @@ func fight_fishing(action: String) -> Dictionary:
 	world = candidate.world
 	return {"ok": true, "status": result.status, "message": world.fishing.last_outcome if result.status != "continue" else result.message}
 
-func land_fishing(retain: bool) -> Dictionary:
+func land_fishing(retain: bool, method: String = "hand") -> Dictionary:
 	if world.fishing.zone != world.player_zone:
 		return _failure("Return to the encounter zone or cancel fishing.")
 	if world.fishing.state != "hooked":
 		return _failure("Set a hook before landing a fish.")
 	if not Fishing.landing_ready(world.fishing):
 		return _failure("Wear the fish down and bring it within landing range first.")
+	var profile := Fishing.landing_profile(method)
+	if profile.is_empty():
+		return _failure("Choose hand, net, or gaff for landing.")
+	if not retain and not bool(profile.release_allowed):
+		return _failure("A gaff landing is retain-only in this test build.")
 	var link_errors := Fishing.validate_inventory_links(world.fishing, world.inventory)
 	if not link_errors.is_empty():
 		return _failure(link_errors[0])
-	if world.game_time_ms > World.MAX_TIME_MS - Fishing.LANDING_ACTION_MS:
+	var landing_ms := int(profile.minutes) * MINUTE_MS
+	if world.game_time_ms > World.MAX_TIME_MS - landing_ms:
 		return _failure("Landing action exceeds the supported clock range.")
 	var candidate = get_script().new(world.seed)
 	var restored: Dictionary = candidate.restore(world.to_record())
 	if not restored.ok:
 		return _failure("Cannot start landing action from invalid world state.")
-	candidate._advance(Fishing.LANDING_ACTION_MS)
+	candidate._advance(landing_ms)
 	var species: String = candidate.world.fishing.target_species
 	var weight: int = int(candidate.world.fishing.last_catch_weight_g)
+	var handling_condition := int(profile.retain_condition if retain else profile.release_condition)
 	if retain:
 		var available: int = int(candidate.world.ecology.populations[species].get(candidate.world.player_zone, 0))
 		if available <= 0:
 			return _failure("The fish was lost before landing.")
-		var stored := Inventory.add_fish(candidate.world.inventory, species, weight, candidate.world.game_time_ms, candidate.world.player_zone)
+		var stored := Inventory.add_fish(candidate.world.inventory, species, weight, candidate.world.game_time_ms, candidate.world.player_zone, handling_condition)
 		if not stored.ok:
 			return _failure("The fish is too large for the available carry capacity.")
 		candidate.world.fishing.retained_count += 1
 		candidate.world.ecology.populations[species][candidate.world.player_zone] = available - 1
 	else:
 		candidate.world.fishing.released_count += 1
+	candidate.world.fishing.last_handling_method = method
+	candidate.world.fishing.last_handling_condition = handling_condition
+	candidate.world.fishing.handling_count += 1
 	candidate.world.condition.energy = maxi(0, int(candidate.world.condition.energy) - 3)
 	candidate.world.condition.hydration = maxi(0, int(candidate.world.condition.hydration) - 1)
-	candidate.world.fishing.last_outcome = ("retained " if retain else "released ") + "%s (%dg)" % [species, weight]
+	candidate.world.fishing.last_outcome = ("retained " if retain else "released ") + "%s (%dg, %s handling, condition %d/1000)" % [species, weight, method, handling_condition]
 	Fishing.clear_active(candidate.world.fishing)
 	candidate._log("fish_landed", candidate.world.fishing.last_outcome.capitalize() + ".")
 	var errors := World.validate(candidate.world.to_record())
 	if not errors.is_empty():
 		return _failure("Landing validation failed; world unchanged.")
 	world = candidate.world
-	return {"ok": true, "message": "Fish %s: %s." % ["retained" if retain else "released", species]}
+	return {"ok": true, "message": "Fish %s: %s by %s." % ["retained" if retain else "released", species, method]}
 
 func transfer_inventory(id: String, destination: String) -> Dictionary:
 	if world.fishing.state != "idle":

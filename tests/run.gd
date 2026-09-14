@@ -911,10 +911,34 @@ func _phase_2m_fight_gate() -> void:
 		bad.fishing[field] = true
 		check(not World.validate(bad).is_empty(), "New fight numeric fields reject boolean corruption.")
 
+func _phase_2n_landing_gate() -> void:
+	var hand := _hooked_fixture(51)
+	check(_finish_test_fight(hand), "Landing-method fixture reaches a valid ready state.")
+	var hand_start := hand.world.game_time_ms
+	check(hand.land_fishing(true, "hand").ok and hand.world.game_time_ms == hand_start + Fishing.LANDING_ACTION_MS and hand.world.fishing.last_handling_method == "hand" and hand.world.fishing.last_handling_condition == 820, "Hand retention records its one-minute cost and deterministic fish condition.")
+	var hand_ids: Array = hand.world.inventory.entries.keys()
+	var hand_condition := -1
+	for id in hand_ids:
+		if hand.world.inventory.entries[id].kind == "whole_fish":
+			hand_condition = int(hand.world.inventory.entries[id].condition)
+	check(hand_condition == 820 and hand.world.fishing.handling_count == 1, "Retained physical fish carries the selected handling condition.")
+	var net := _hooked_fixture(52)
+	check(_finish_test_fight(net), "Net fixture reaches a valid ready state.")
+	var net_start := net.world.game_time_ms
+	check(net.land_fishing(false, "net").ok and net.world.game_time_ms == net_start + 2 * Fishing.LANDING_ACTION_MS and net.world.fishing.last_handling_method == "net" and net.world.fishing.last_handling_condition == 940 and net.world.fishing.released_count == 1, "Net release records its two-minute cost, release condition and cumulative count.")
+	var gaff := _hooked_fixture(53)
+	check(_finish_test_fight(gaff), "Gaff fixture reaches a valid ready state.")
+	var before := gaff.world.to_record()
+	check(not gaff.land_fishing(false, "gaff").ok and gaff.world.to_record() == before, "Gaff release is rejected atomically because the lab method is retain-only.")
+	check(gaff.land_fishing(true, "gaff").ok and gaff.world.fishing.last_handling_condition == 1000 and gaff.world.fishing.last_handling_method == "gaff", "Gaff retention records full condition and clears the active encounter.")
+	var reloaded := Kernel.new(99)
+	check(reloaded.restore(JSON.parse_string(JSON.stringify(gaff.world.to_record()))).ok and reloaded.world.fishing.last_handling_method == "gaff" and reloaded.world.fishing.last_handling_condition == 1000 and reloaded.world.fishing.handling_count == 1, "Landing outcome history survives JSON save and reload.")
+
 func _audit_regressions() -> void:
 	_inventory_records()
 	_fishing_equipment_gate()
 	_phase_2m_fight_gate()
+	_phase_2n_landing_gate()
 	var k := Kernel.new(42)
 	k.advance_game_ms(World.DAY_MS)
 	k.world.condition.health = 654

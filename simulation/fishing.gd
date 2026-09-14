@@ -1,7 +1,7 @@
 extends RefCounted
 ## Deterministic fishing encounter and fight rules for the systems lab.
 
-const VERSION := 4
+const VERSION := 5
 const Map = preload("res://simulation/testbed_map.gd")
 const STATES := ["idle", "rigged", "cast", "hooked"]
 const SPECIES := ["mullet", "atlantic_menhaden", "redfish", "speckled_trout", "black_drum"]
@@ -15,6 +15,7 @@ const READY_DISTANCE_CM := 250
 const SLACK_LIMIT := 100
 const OVERLOAD_LIMIT := 900
 const COVER_DISTANCE_CM := 3500
+const LANDING_METHODS := ["hand", "net", "gaff"]
 
 static func create() -> Dictionary:
 	return {
@@ -39,6 +40,9 @@ static func create() -> Dictionary:
 		"fight_round": 0,
 		"fish_cue": "",
 		"lost_count": 0,
+		"last_handling_method": "",
+		"last_handling_condition": 0,
+		"handling_count": 0,
 	}
 
 static func validate(record: Variant, now_ms: int, legacy: bool = false, old_v1: bool = false, old_v2: bool = false, old_v3: bool = false) -> PackedStringArray:
@@ -49,9 +53,11 @@ static func validate(record: Variant, now_ms: int, legacy: bool = false, old_v1:
 		keys.append_array(["rod_item_id", "terminal_item_id"])
 	if not legacy and not old_v1 and not old_v2 and not old_v3:
 		keys.append_array(["reel_item_id", "line_item_id", "fish_stamina", "line_tension", "fish_distance_cm", "fight_round", "fish_cue", "lost_count"])
+		keys.append_array(["last_handling_method", "last_handling_condition", "handling_count"])
 	if legacy:
 		keys = ["version", "state", "zone", "target_species", "bite_due_ms", "last_outcome"]
-	if not record is Dictionary or record.size() != keys.size() or not record.has_all(keys):
+	var legacy_handling_fields: bool = (legacy or old_v1 or old_v2 or old_v3) and record is Dictionary and record.size() == keys.size() + 3 and record.has_all(["last_handling_method", "last_handling_condition", "handling_count"])
+	if not record is Dictionary or (record.size() != keys.size() and not legacy_handling_fields) or not record.has_all(keys):
 		return PackedStringArray(["Fishing state has missing or unknown fields."])
 	if legacy:
 		var expanded: Dictionary = record.duplicate(true)
@@ -62,6 +68,7 @@ static func validate(record: Variant, now_ms: int, legacy: bool = false, old_v1:
 	var numeric_fields := ["version", "bite_due_ms", "last_catch_weight_g", "retained_count", "released_count"]
 	if not old_v1 and not old_v2 and not old_v3:
 		numeric_fields.append_array(["fish_stamina", "line_tension", "fish_distance_cm", "fight_round", "lost_count"])
+		numeric_fields.append_array(["last_handling_condition", "handling_count"])
 	for field in numeric_fields:
 		if not _integer(record[field], 0, 3153600000000):
 			return PackedStringArray(["Invalid fishing numeric field."])
@@ -96,6 +103,8 @@ static func validate(record: Variant, now_ms: int, legacy: bool = false, old_v1:
 		if record.state == "hooked":
 			if int(record.last_catch_weight_g) <= 0 or not _integer(record.fish_stamina, 1, 10000) or not _integer(record.line_tension, 101, 899) or not _integer(record.fish_distance_cm, 1, 3499) or not _integer(record.fight_round, 0, 100000) or record.fish_cue not in FIGHT_CUES:
 				return PackedStringArray(["Invalid active fish-fight state."])
+		if record.last_handling_method not in [""] + LANDING_METHODS or not record.last_handling_method is String or not _integer(record.last_handling_condition, 0, 1000) or not _integer(record.handling_count, 0, 1000000000):
+			return PackedStringArray(["Invalid landing outcome record."])
 	if record.last_outcome.length() > 512 or (not record.zone.is_empty() and record.zone not in Map.ZONE_IDS) or (not record.target_species.is_empty() and record.target_species not in SPECIES) or int(record.bite_due_ms) > now_ms + 3600000 or int(record.last_catch_weight_g) > 100000 or int(record.retained_count) > 1000000000 or int(record.released_count) > 1000000000 or (not old_v1 and not old_v2 and not old_v3 and int(record.lost_count) > 1000000000):
 		return PackedStringArray(["Invalid fishing encounter."])
 	return PackedStringArray()
@@ -226,6 +235,13 @@ static func cue_for(record: Dictionary, water: Dictionary) -> String:
 
 static func landing_ready(record: Dictionary) -> bool:
 	return record.state == "hooked" and int(record.fish_stamina) <= READY_STAMINA and int(record.fish_distance_cm) <= READY_DISTANCE_CM
+
+static func landing_profile(method: String) -> Dictionary:
+	return {
+		"hand": {"minutes": 1, "retain_condition": 820, "release_condition": 700, "release_allowed": true},
+		"net": {"minutes": 2, "retain_condition": 960, "release_condition": 940, "release_allowed": true},
+		"gaff": {"minutes": 1, "retain_condition": 1000, "release_condition": 0, "release_allowed": false},
+	}.get(method, {})
 
 static func clear_fight(record: Dictionary) -> void:
 	record.fish_stamina = 0
