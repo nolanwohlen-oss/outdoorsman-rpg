@@ -2,7 +2,7 @@
 
 An Android outdoor survival RPG, beginning with a small laboratory for its simulation systems.
 
-**Current milestone: Phase 2G — fishing accounting (schema 7, development v0.8.0).** The app adds deterministic catch size, inventory food, condition costs, and local ecology removal to the fishing loop.
+**Current milestone: Phase 2H — physical inventory (schema 8, development v0.9.0).** The app tracks defined items, per-item weight, carry capacity, and raw retained fish separately from prepared food.
 
 The Phase 2A delivery spans the minimum contracts, clock and early persistence from the longer roadmap. Phase 2B adds map/habitat access; Phase 2C adds the first environmental integration test, not the complete weather framework. See [Phase 2A](docs/PHASE_2A.md), [Phase 2B](docs/PHASE_2B.md) and [Phase 2C contracts and limits](docs/PHASE_2C.md).
 
