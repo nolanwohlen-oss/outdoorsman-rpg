@@ -138,6 +138,10 @@ func _init() -> void:
 	var legacy_time := int(legacy.clock.game_time_ms)
 	legacy.schema_version = 15
 	legacy.fishing.version = 6
+	legacy.fishing.erase("strike_started_ms")
+	legacy.fishing.erase("hook_placement")
+	legacy.fishing.erase("hook_hold")
+	legacy.fishing.erase("hook_injury")
 	var migrated := World.migrate_record(legacy)
 	if not migrated.ok or not migrated.migrated or int(migrated.record.schema_version) != World.SCHEMA_VERSION or int(migrated.record.clock.game_time_ms) != legacy_time:
 		fail("2R: Phase 2Q save migration changed time or failed")

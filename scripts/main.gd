@@ -218,7 +218,7 @@ func _build_interface() -> void:
 	add_child(margin)
 	var layout := _column(margin, 8)
 	layout.add_child(_label("OUTDOORSMAN", 34))
-	layout.add_child(_label("SYSTEMS LAB  /  PHASE 2Q", 20, ACCENT))
+	layout.add_child(_label("SYSTEMS LAB  /  PHASE 2R", 20, ACCENT))
 	clock_label = _label("", 30)
 	calendar_label = _label("", 21, MUTED)
 	location_label = _label("", 23, ACCENT)
@@ -243,11 +243,11 @@ func _build_interface() -> void:
 	status_label = _label("", 21, ACCENT)
 	status_label.max_lines_visible = 4
 	layout.add_child(status_label)
-	var build := "v0.18.0 · local build"
+	var build := "v0.19.0 · local build"
 	if FileAccess.file_exists("res://config/build_info.json"):
 		var info = JSON.parse_string(FileAccess.get_file_as_string("res://config/build_info.json"))
 		if info is Dictionary:
-			build = "v%s · build %s · %s" % [str(info.get("version", "0.18.0")), str(info.get("number", "local")).trim_suffix(".0"), info.get("commit", "unknown")]
+			build = "v%s · build %s · %s" % [str(info.get("version", "0.19.0")), str(info.get("number", "local")).trim_suffix(".0"), info.get("commit", "unknown")]
 	layout.add_child(_label(build, 18, MUTED))
 	new_world_dialog = ConfirmationDialog.new()
 	new_world_dialog.title = "Start a new test world?"
@@ -278,7 +278,11 @@ func _build_clock(column: VBoxContainer) -> void:
 	_button(row, "Soak", _set_presentation.bind("soak"))
 	_button(column, "Cast selected rig", _fish_cast)
 	_button(column, "Read presentation / check strike", _fish_check)
-	_button(column, "Set hook", _fish_hook)
+	column.add_child(_label("Hook timing uses actual Game Clock age after the strike cue. Tap favors an immediate response; pull/run generally favor a short load. Choose force explicitly.", 19, MUTED))
+	row = _row(column)
+	_button(row, "Soft set", _fish_hook.bind("soft"))
+	_button(row, "Firm set", _fish_hook.bind("firm"))
+	_button(row, "Hard set", _fish_hook.bind("hard"))
 	column.add_child(_label("Drag now changes tension and fish progress. Loose protects tackle but gives distance; tight gains control at higher break risk.", 19, MUTED))
 	row = _row(column)
 	_button(row, "Loose drag", _set_drag.bind("loose"))
@@ -479,13 +483,16 @@ func _refresh() -> void:
 		var f: Dictionary = kernel.world.fishing
 		var ready := Fishing.landing_ready(f)
 		if f.state == "hooked":
-			fishing_status.text = "HOOKED: %s · %d g\nPresentation: %s · Strike: %s\nFight cue: %s · Selected drag: %s\nFish stamina: %d · Line tension: %d / 1000\nDistance: %.1f m · Fight choices: %d\n%s\nRetained %d · Released %d · Lost %d\nLast handling: %s · condition %d/1000" % [String(f.target_species).replace("_", " ").capitalize(), f.last_catch_weight_g, String(f.presentation).capitalize(), String(f.strike_cue).to_upper(), String(f.fish_cue).to_upper(), selected_drag.capitalize(), f.fish_stamina, f.line_tension, float(f.fish_distance_cm) / 100.0, f.fight_round, "READY TO LAND" if ready else "Keep fighting", f.retained_count, f.released_count, f.lost_count, f.last_handling_method if not f.last_handling_method.is_empty() else "none", f.last_handling_condition]
+			fishing_status.text = "HOOKED: %s · %d g\nPresentation: %s · Strike: %s\nHook: %s · hold %d/1000 · injury %d/1000\nFight cue: %s · Selected drag: %s\nFish stamina: %d · Line tension: %d / 1000\nDistance: %.1f m · Fight choices: %d\n%s\nRetained %d · Released %d · Lost %d\nLast handling: %s · condition %d/1000" % [String(f.target_species).replace("_", " ").capitalize(), f.last_catch_weight_g, String(f.presentation).capitalize(), String(f.strike_cue).to_upper(), String(f.hook_placement).replace("_", " ").capitalize(), f.hook_hold, f.hook_injury, String(f.fish_cue).to_upper(), selected_drag.capitalize(), f.fish_stamina, f.line_tension, float(f.fish_distance_cm) / 100.0, f.fight_round, "READY TO LAND" if ready else "Keep fighting", f.retained_count, f.released_count, f.lost_count, f.last_handling_method if not f.last_handling_method.is_empty() else "none", f.last_handling_condition]
 		else:
 			if f.state == "rigged" and not Fishing.presentation_supported(f.rig_mode, selected_presentation):
 				selected_presentation = Fishing.default_presentation(f.rig_mode)
 			var presentation_text := String(f.presentation).capitalize() if f.state == "cast" else selected_presentation.capitalize()
 			var strike_text := (String(f.strike_cue).to_upper() + " cue") if f.state == "cast" and not f.strike_cue.is_empty() else ("waiting" if f.state == "cast" else "none")
-			fishing_status.text = "State: %s · Rig: %s\nPresentation: %s · Strike: %s\nSpecies: unknown until hooked\nNext check: %s\nRetained %d · Released %d · Lost %d" % [f.state, f.rig_mode, presentation_text, strike_text, Kernel.time_text(int(f.bite_due_ms)) if f.state == "cast" else "not waiting", f.retained_count, f.released_count, f.lost_count]
+			var response_text := "not active"
+			if f.state == "cast" and int(f.strike_started_ms) > 0:
+				response_text = "%.1f game sec" % (float(kernel.world.game_time_ms - int(f.strike_started_ms)) / 1000.0)
+			fishing_status.text = "State: %s · Rig: %s\nPresentation: %s · Strike: %s\nHook response age: %s\nSpecies: unknown until hooked\nNext check: %s\nRetained %d · Released %d · Lost %d" % [f.state, f.rig_mode, presentation_text, strike_text, response_text, Kernel.time_text(int(f.bite_due_ms)) if f.state == "cast" else "not waiting", f.retained_count, f.released_count, f.lost_count]
 		for button in fight_buttons:
 			button.disabled = save_blocked or f.state != "hooked" or ready
 		for button in land_buttons:
@@ -659,9 +666,9 @@ func _fish_check() -> void:
 	if _can_act():
 		_after_action(kernel.check_fishing())
 
-func _fish_hook() -> void:
+func _fish_hook(force: String = "firm") -> void:
 	if _can_act():
-		_after_action(kernel.hook_fishing())
+		_after_action(kernel.hook_fishing(force))
 
 func _set_presentation(value: String) -> void:
 	if value in Fishing.PRESENTATIONS:

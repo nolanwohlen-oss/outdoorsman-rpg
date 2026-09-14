@@ -296,28 +296,48 @@ func check_fishing() -> Dictionary:
 		return {"ok": true, "status": "no_strike", "message": "No clear strike. The presentation continues; check again after 2 game minutes or cancel and change approach."}
 	world.fishing.target_species = String(engagement.species)
 	world.fishing.strike_cue = String(engagement.cue)
+	world.fishing.strike_started_ms = world.game_time_ms
 	_log("fish_strike", "%s strike cue on a %s %s presentation at %s; species remains unidentified." % [world.fishing.strike_cue.capitalize(), world.fishing.presentation, world.fishing.rig_mode, world.player_zone])
 	return {"ok": true, "status": "strike", "message": "%s strike cue detected. Species remains unidentified until the hook is set." % world.fishing.strike_cue.capitalize()}
 
-func hook_fishing() -> Dictionary:
+func hook_fishing(force: String = "firm") -> Dictionary:
 	if world.fishing.zone != world.player_zone:
 		return _failure("Return to the encounter zone or cancel fishing.")
 	if world.fishing.state != "cast":
 		return _failure("Nothing is waiting on the line.")
+	if force not in Fishing.HOOK_FORCES:
+		return _failure("Choose soft, firm, or hard hook-set force.")
 	if world.game_time_ms < int(world.fishing.bite_due_ms):
 		return _failure("No strike window yet; keep working the presentation.")
 	if world.fishing.target_species.is_empty():
 		var strike := check_fishing()
 		if not strike.ok or strike.get("status", "") != "strike":
 			return strike
+	if int(world.fishing.strike_started_ms) <= 0:
+		return _failure("The strike has no valid response time; cancel the encounter rather than guessing.")
 	var link_errors := Fishing.validate_inventory_links(world.fishing, world.inventory)
 	if not link_errors.is_empty():
 		return _failure(link_errors[0])
+	var elapsed_ms := world.game_time_ms - int(world.fishing.strike_started_ms)
+	var set_result := Fishing.hookset_result(world.fishing.strike_cue, force, elapsed_ms)
+	if not set_result.ok:
+		return set_result
+	if set_result.status != "hooked":
+		var miss_detail := "%s strike answered with %s force after %.1f game seconds: %s" % [world.fishing.strike_cue.capitalize(), force, float(elapsed_ms) / 1000.0, set_result.message]
+		world.fishing.lost_count += 1
+		world.fishing.last_outcome = "Strike missed: %s" % set_result.message
+		Fishing.clear_active(world.fishing)
+		_log("hookset_missed", miss_detail)
+		return {"ok": true, "status": "missed", "message": world.fishing.last_outcome}
 	world.fishing.state = "hooked"
 	world.fishing.last_catch_weight_g = 250 + posmod(world.seed + world.game_time_ms + world.player_zone.length() * 31, 1750)
+	world.fishing.hook_placement = String(set_result.placement)
+	world.fishing.hook_hold = int(set_result.hold)
+	world.fishing.hook_injury = int(set_result.injury)
 	Fishing.start_fight(world.fishing, world.environment.water_by_zone[world.player_zone])
-	_log("fish_hooked", "Hook set on %s after %s presentation / %s strike; first fight cue: %s." % [world.fishing.target_species, world.fishing.presentation, world.fishing.strike_cue, world.fishing.fish_cue])
-	return {"ok": true, "message": "Fish hooked: %s. Read the %s fight cue." % [world.fishing.target_species, world.fishing.fish_cue]}
+	world.fishing.line_tension = clampi(int(world.fishing.line_tension) + int(set_result.tension_delta), Fishing.SLACK_LIMIT + 1, Fishing.OVERLOAD_LIMIT - 1)
+	_log("fish_hooked", "Hook set on %s after %s presentation / %s strike; %s timing, %s force, %s placement, hold %d/1000, injury %d/1000; first fight cue: %s." % [world.fishing.target_species, world.fishing.presentation, world.fishing.strike_cue, set_result.timing, force, String(set_result.placement).replace("_", " "), world.fishing.hook_hold, world.fishing.hook_injury, world.fishing.fish_cue])
+	return {"ok": true, "status": "hooked", "message": "Fish hooked: %s. %s placement · hold %d/1000 · injury %d/1000." % [world.fishing.target_species, String(world.fishing.hook_placement).replace("_", " ").capitalize(), world.fishing.hook_hold, world.fishing.hook_injury]}
 
 func fight_fishing(action: String, drag: String = "balanced") -> Dictionary:
 	if world.fishing.zone != world.player_zone:
@@ -349,9 +369,17 @@ func fight_fishing(action: String, drag: String = "balanced") -> Dictionary:
 	var line_limit: int = Inventory.line_load_limit(candidate.world.inventory, line_id) - int((1000 - rod_condition) / 4)
 	line_limit = clampi(line_limit, 450, Fishing.OVERLOAD_LIMIT)
 	var terminal_limit: int = Inventory.terminal_load_limit(candidate.world.inventory, terminal_id)
-	var overload_limit: int = mini(line_limit, terminal_limit)
-	var overload_component := "terminal tackle" if terminal_limit < line_limit else "line"
-	var result := Fishing.resolve_round(candidate.world.fishing, action, water, drag, overload_limit)
+	var hook_limit: int = Fishing.hook_load_limit(candidate.world.fishing)
+	var hook_slack_limit: int = Fishing.hook_slack_limit(candidate.world.fishing)
+	var overload_limit: int = line_limit
+	var overload_component := "line"
+	if terminal_limit < overload_limit:
+		overload_limit = terminal_limit
+		overload_component = "terminal tackle"
+	if hook_limit < overload_limit:
+		overload_limit = hook_limit
+		overload_component = "hook hold"
+	var result := Fishing.resolve_round(candidate.world.fishing, action, water, drag, overload_limit, hook_slack_limit)
 	if not result.ok:
 		return result
 	var power_load := clampi(int(Fishing.fight_power(candidate.world.fishing, water) / 250), 0, 8)
@@ -371,17 +399,25 @@ func fight_fishing(action: String, drag: String = "balanced") -> Dictionary:
 	elif result.status == "overload":
 		if overload_terminal:
 			result.status = "tackle_failure"
-		result.message = "The %s failed under excessive load; the fish escaped." % overload_component
+			result.message = "The terminal tackle failed under excessive load; the fish escaped."
+		elif overload_component == "hook hold":
+			result.status = "hook_pull"
+			result.message = "The %s hook hold tore free under load; the fish escaped." % String(candidate.world.fishing.hook_placement).replace("_", " ")
+		else:
+			result.message = "The line failed under excessive load; the fish escaped."
+	if result.status == "slack" and int(candidate.world.fishing.line_tension) > Fishing.SLACK_LIMIT:
+		result.status = "hook_pull"
+		result.message = "The %s hook hold pulled free as tension fell; the fish escaped." % String(candidate.world.fishing.hook_placement).replace("_", " ")
 	var species: String = candidate.world.fishing.target_species
 	if result.status != "continue":
-		var failure_detail := "%s / %s drag against %s failed (%s); stamina %d, tension %d, distance %d cm; rod %d, reel %d, line %d, terminal %d / 1000." % [action.replace("_", " ").capitalize(), drag, species, result.message, candidate.world.fishing.fish_stamina, candidate.world.fishing.line_tension, candidate.world.fishing.fish_distance_cm, wear.rod, wear.reel, wear.line, wear.terminal]
+		var failure_detail := "%s / %s drag against %s failed (%s); stamina %d, tension %d, distance %d cm; hook %s hold %d injury %d; rod %d, reel %d, line %d, terminal %d / 1000." % [action.replace("_", " ").capitalize(), drag, species, result.message, candidate.world.fishing.fish_stamina, candidate.world.fishing.line_tension, candidate.world.fishing.fish_distance_cm, String(candidate.world.fishing.hook_placement).replace("_", " "), candidate.world.fishing.hook_hold, candidate.world.fishing.hook_injury, wear.rod, wear.reel, wear.line, wear.terminal]
 		candidate.world.fishing.lost_count += 1
 		candidate.world.fishing.last_outcome = "%s lost: %s" % [species, result.message]
 		Fishing.clear_active(candidate.world.fishing)
 		candidate._log("fish_lost", failure_detail)
 	else:
 		var ready := Fishing.landing_ready(candidate.world.fishing)
-		var detail := "%s / %s drag against %s; stamina %d, tension %d, distance %d cm; rod %d, reel %d, line %d, terminal %d / 1000%s." % [action.replace("_", " ").capitalize(), drag, species, candidate.world.fishing.fish_stamina, candidate.world.fishing.line_tension, candidate.world.fishing.fish_distance_cm, wear.rod, wear.reel, wear.line, wear.terminal, "; ready to land" if ready else "; next cue " + candidate.world.fishing.fish_cue]
+		var detail := "%s / %s drag against %s; stamina %d, tension %d, distance %d cm; hook %s hold %d injury %d; rod %d, reel %d, line %d, terminal %d / 1000%s." % [action.replace("_", " ").capitalize(), drag, species, candidate.world.fishing.fish_stamina, candidate.world.fishing.line_tension, candidate.world.fishing.fish_distance_cm, String(candidate.world.fishing.hook_placement).replace("_", " "), candidate.world.fishing.hook_hold, candidate.world.fishing.hook_injury, wear.rod, wear.reel, wear.line, wear.terminal, "; ready to land" if ready else "; next cue " + candidate.world.fishing.fish_cue]
 		candidate._log("fish_fight", detail)
 		result.message = detail
 	var errors := World.validate(candidate.world.to_record())
@@ -415,7 +451,11 @@ func land_fishing(retain: bool, method: String = "hand") -> Dictionary:
 	candidate._advance(landing_ms)
 	var species: String = candidate.world.fishing.target_species
 	var weight: int = int(candidate.world.fishing.last_catch_weight_g)
-	var handling_condition := int(profile.retain_condition if retain else profile.release_condition)
+	var hook_placement: String = candidate.world.fishing.hook_placement
+	var hook_injury: int = int(candidate.world.fishing.hook_injury)
+	var base_handling_condition := int(profile.retain_condition if retain else profile.release_condition)
+	var injury_penalty := int(hook_injury / (4 if retain else 2))
+	var handling_condition := maxi(0, base_handling_condition - injury_penalty)
 	if retain:
 		var available: int = int(candidate.world.ecology.populations[species].get(candidate.world.player_zone, 0))
 		if available <= 0:
@@ -432,7 +472,7 @@ func land_fishing(retain: bool, method: String = "hand") -> Dictionary:
 	candidate.world.fishing.handling_count += 1
 	candidate.world.condition.energy = maxi(0, int(candidate.world.condition.energy) - 3)
 	candidate.world.condition.hydration = maxi(0, int(candidate.world.condition.hydration) - 1)
-	candidate.world.fishing.last_outcome = ("retained " if retain else "released ") + "%s (%dg, %s handling, condition %d/1000)" % [species, weight, method, handling_condition]
+	candidate.world.fishing.last_outcome = ("retained " if retain else "released ") + "%s (%dg, %s handling, condition %d/1000; hook %s, injury %d/1000)" % [species, weight, method, handling_condition, hook_placement.replace("_", " "), hook_injury]
 	Fishing.clear_active(candidate.world.fishing)
 	candidate._log("fish_landed", candidate.world.fishing.last_outcome.capitalize() + ".")
 	var errors := World.validate(candidate.world.to_record())

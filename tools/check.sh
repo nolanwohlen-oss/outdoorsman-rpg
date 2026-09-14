@@ -34,9 +34,10 @@ timeout 60 "$godot_bin" --headless --path "$project_root" --script tests/run.gd 
 timeout 30 "$godot_bin" --headless --path "$project_root" --script tests/phase_2o.gd 2>&1 | tee "$project_root/build/phase-2o.log"
 timeout 30 "$godot_bin" --headless --path "$project_root" --script tests/phase_2p.gd 2>&1 | tee "$project_root/build/phase-2p.log"
 timeout 30 "$godot_bin" --headless --path "$project_root" --script tests/phase_2q.gd 2>&1 | tee "$project_root/build/phase-2q.log"
+timeout 30 "$godot_bin" --headless --path "$project_root" --script tests/phase_2r.gd 2>&1 | tee "$project_root/build/phase-2r.log"
 probe_dir="$(mktemp -d "$project_root/build/process-save-XXXXXX")"
 timeout 30 "$godot_bin" --headless --path "$project_root" --script tests/persistence_probe.gd -- write "$probe_dir" 2>&1 | tee "$project_root/build/save-write.log"
 timeout 30 "$godot_bin" --headless --path "$project_root" --script tests/persistence_probe.gd -- read "$probe_dir" 2>&1 | tee "$project_root/build/save-read.log"
-if grep -E 'SCRIPT ERROR:|^ERROR:' "$project_root/build/import.log" "$project_root/build/tests.log" "$project_root/build/phase-2o.log" "$project_root/build/phase-2p.log" "$project_root/build/phase-2q.log" "$project_root/build/save-write.log" "$project_root/build/save-read.log"; then
+if grep -E 'SCRIPT ERROR:|^ERROR:' "$project_root/build/import.log" "$project_root/build/tests.log" "$project_root/build/phase-2o.log" "$project_root/build/phase-2p.log" "$project_root/build/phase-2q.log" "$project_root/build/phase-2r.log" "$project_root/build/save-write.log" "$project_root/build/save-read.log"; then
   exit 1
 fi
