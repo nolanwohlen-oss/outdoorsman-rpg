@@ -49,14 +49,13 @@ static func _food_factor(species: String, zone: String, environment: Dictionary)
 static func advance_to(record: Dictionary, seed: int, target_ms: int, environment: Dictionary) -> void:
 	while int(record.updated_at_ms) + STEP_MS <= target_ms:
 		var at_ms := int(record.updated_at_ms) + STEP_MS
-		var moved := 0
 		for species in SPECIES:
 			# Reproduction/death is bounded by local capacity and food; integer-only.
 			for zone in CAPACITY[species]:
 				var count: int = record.populations[species][zone]
 				var cap: int = CAPACITY[species][zone]
 				var food := _food_factor(species, zone, environment)
-				var births := _div(count * food, 10000)
+				var births := mini(cap - count, _div(count * food, 10000))
 				var deaths := _div(count * (100 - food), 25000)
 				record.populations[species][zone] = clampi(count + births - deaths, 0, cap)
 				record.births += births
@@ -70,10 +69,10 @@ static func advance_to(record: Dictionary, seed: int, target_ms: int, environmen
 				var destination: String = route.to
 				if CAPACITY[species].get(destination, 0) > 0 and _food_factor(species, destination, environment) > _food_factor(species, source, environment) + 8:
 					var moved_count := maxi(1, _div(record.populations[species][source], 100))
+					moved_count = mini(moved_count, int(CAPACITY[species][destination]) - int(record.populations[species][destination]))
 					record.populations[species][source] -= moved_count
 					record.populations[species][destination] = mini(int(CAPACITY[species][destination]), int(record.populations[species][destination]) + moved_count)
 					record.moves += moved_count
-					moved += moved_count
 					break
 		record.updated_at_ms = at_ms
 

@@ -578,9 +578,77 @@ func _environment_migrations() -> void:
 	# A malformed legacy payload must stay rejected even at the clock bound.
 	check(not World.migrate_record(limit).ok, "Migration never repairs invalid legacy calendar events.")
 
+func _audit_regressions() -> void:
+	var k := Kernel.new(42)
+	k.advance_game_ms(World.DAY_MS)
+	k.world.inventory.items.water_ml = 777
+	k.world.condition.health = 654
+	k.world.fishing.retained_count = 3
+	for version in [4, 5, 6, 7]:
+		var old := k.world.to_record()
+		old.schema_version = version
+		if version < 5:
+			old.erase("condition")
+			old.erase("inventory")
+		else:
+			old.inventory.version = 1
+			old.inventory.erase("capacity_g")
+			old.inventory.items.erase("fish_food_g")
+		if version < 6:
+			old.erase("fishing")
+		elif version == 6:
+			for key in ["last_catch_weight_g", "retained_count", "released_count"]:
+				old.fishing.erase(key)
+		var snapshot := old.duplicate(true)
+		var migrated := World.migrate_record(old)
+		check(migrated.ok and old == snapshot, "Shipped legacy schema migrates without mutating its input.")
+		if migrated.ok:
+			check(migrated.record.ecology == old.ecology, "Migration preserves existing population and counters.")
+			if version >= 5:
+				check(migrated.record.condition == old.condition and migrated.record.inventory.items.water_ml == 777, "Migration preserves player condition and depleted inventory.")
+			if version == 7:
+				check(migrated.record.fishing == old.fishing, "Migration preserves encounter and catch history.")
+	k = Kernel.new(42)
+	k.rig_fishing()
+	k.cast_fishing()
+	var before := k.world.to_record()
+	check(not k.move_plan("elevated_camp").ok and k.world.to_record() == before, "Travelling with a cast line is rejected atomically.")
+	check(not k.rig_fishing().ok and k.world.to_record() == before, "Re-rigging cannot overwrite an active encounter.")
+	k.advance_game_ms(15 * Kernel.MINUTE_MS)
+	k.hook_fishing()
+	k.world.inventory.items.fish_food_g = 7800
+	before = k.world.to_record()
+	check(not k.land_fishing(true).ok and k.world.to_record() == before, "Full inventory rejects retention without changing fish, counters, or vitals.")
+	check(k.land_fishing(false).ok, "A fish can still be released when inventory is full.")
+	k.rig_fishing()
+	check(k.world.fishing.released_count == 1, "Preparing another rig preserves cumulative catch counts.")
+	check(k.cancel_fishing().ok and k.move_plan("elevated_camp").ok, "Cancellation restores a travel recovery path.")
+	for field in ["version", "bite_due_ms", "retained_count"]:
+		var bad := k.world.to_record()
+		bad.fishing[field] = true
+		check(not World.validate(bad).is_empty(), "Fishing numeric fields reject booleans.")
+	var ecology = load("res://simulation/ecology.gd")
+	var e: Dictionary = ecology.create(42, World.START_MS)
+	for species in ecology.SPECIES:
+		for zone in ecology.CAPACITY[species]:
+			e.populations[species][zone] = ecology.CAPACITY[species][zone]
+	var initial_total := 0
+	for species in ecology.SPECIES:
+		initial_total += ecology.total(e, species)
+	var env := CoastalEnvironment.create(42, World.START_MS)
+	for step in 192:
+		var target: int = int(e.updated_at_ms) + ecology.STEP_MS
+		CoastalEnvironment.advance_to(env, 42, target)
+		ecology.advance_to(e, 42, target, env)
+	var final_total := 0
+	for species in ecology.SPECIES:
+		final_total += ecology.total(e, species)
+	check(final_total == initial_total + int(e.births) - int(e.deaths), "Population conservation holds through two days at capacity.")
+
 func _run() -> void:
 	test_directory = "res://build/tests-%d-%d" % [OS.get_process_id(), Time.get_ticks_usec()]
 	_contracts()
+	_audit_regressions()
 	_environment()
 	_environment_access()
 	_environment_migrations()
@@ -591,5 +659,5 @@ func _run() -> void:
 	_save_files()
 	_session_lifecycle()
 	await _ui()
-	print("Phase 2C checks: %d passed, %d failed" % [checks - failures, failures])
+	print("Simulation checks: %d passed, %d failed" % [checks - failures, failures])
 	quit(0 if failures == 0 else 1)

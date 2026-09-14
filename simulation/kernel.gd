@@ -109,6 +109,8 @@ func advance_real_us(real_us: int) -> Dictionary:
 	return _advance(delta_ms)
 
 func move(destination: String) -> Dictionary:
+	if world.fishing.state in ["cast", "hooked"]:
+		return _failure("Finish or cancel fishing before travelling.")
 	var resolution := travel_result(destination)
 	if not resolution.ok:
 		return _failure(resolution.reason)
@@ -163,17 +165,22 @@ func route_plan(destination: String) -> Dictionary:
 			return {"ok": false, "reason": "Route closes at %s: %s" % [Map.ZONES[origin].id, reason]}
 		total += int(base.route.minutes) * MINUTE_MS
 		var arrival := world.game_time_ms + total
+		if arrival > World.MAX_TIME_MS:
+			return {"ok": false, "reason": "Clock limit reached."}
 		var preview := simulated.duplicate(true)
-		CoastalEnvironment.advance_to(preview, world.seed, arrival)
-		reason = CoastalEnvironment.route_block(base.route, preview)
-		if not reason.is_empty():
-			return {"ok": false, "reason": "Route would close before arrival at %s: %s" % [Map.ZONES[next].id, reason]}
+		while int(preview.updated_at_ms) + CoastalEnvironment.STEP_MS <= arrival:
+			CoastalEnvironment.advance_to(preview, world.seed, int(preview.updated_at_ms) + CoastalEnvironment.STEP_MS)
+			reason = CoastalEnvironment.route_block(base.route, preview)
+			if not reason.is_empty():
+				return {"ok": false, "reason": "Route would close before arrival at %s: %s" % [Map.ZONES[next].id, reason]}
 		legs.append(base.route.duplicate(true))
 		simulated = preview
 		origin = next
 	return {"ok": true, "path": path, "legs": legs, "minutes": int(total / MINUTE_MS)}
 
 func move_plan(destination: String) -> Dictionary:
+	if world.fishing.state in ["cast", "hooked"]:
+		return _failure("Finish or cancel fishing before travelling.")
 	var plan := route_plan(destination)
 	if not plan.ok:
 		return plan
@@ -202,11 +209,14 @@ func observe() -> Dictionary:
 	return {"ok": true, "message": "Observation added to the log."}
 
 func rig_fishing() -> Dictionary:
+	if world.fishing.state in ["cast", "hooked"]:
+		return _failure("Finish or cancel the current fishing encounter first.")
 	if world.player_zone == "elevated_camp" or not world.environment.water_by_zone[world.player_zone].water_present:
 		return _failure("Fishing requires a water zone.")
-	world.fishing = Fishing.create()
 	world.fishing.state = "rigged"
 	world.fishing.zone = world.player_zone
+	world.fishing.target_species = ""
+	world.fishing.bite_due_ms = 0
 	_log("fishing_rigged", "Rig prepared at %s." % world.player_zone)
 	return {"ok": true, "message": "Rig prepared."}
 
@@ -226,6 +236,8 @@ func cast_fishing() -> Dictionary:
 	return {"ok": true, "message": "Cast complete. Check for a bite after 15 game minutes."}
 
 func hook_fishing() -> Dictionary:
+	if world.fishing.zone != world.player_zone:
+		return _failure("Return to the encounter zone or cancel fishing.")
 	if world.fishing.state != "cast":
 		return _failure("Nothing is waiting on the line.")
 	if world.game_time_ms < int(world.fishing.bite_due_ms):
@@ -236,6 +248,8 @@ func hook_fishing() -> Dictionary:
 	return {"ok": true, "message": "Fish hooked: %s." % world.fishing.target_species}
 
 func land_fishing(retain: bool) -> Dictionary:
+	if world.fishing.zone != world.player_zone:
+		return _failure("Return to the encounter zone or cancel fishing.")
 	if world.fishing.state != "hooked":
 		return _failure("Set a hook before landing a fish.")
 	var species: String = world.fishing.target_species
@@ -244,11 +258,10 @@ func land_fishing(retain: bool) -> Dictionary:
 		var available: int = int(world.ecology.populations[species].get(world.player_zone, 0))
 		if available <= 0:
 			return _failure("The fish was lost before landing.")
-		world.fishing.retained_count += 1
 		var stored := Inventory.add(world.inventory, "fish_food_g", weight)
 		if not stored.ok:
-			world.fishing.retained_count -= 1
 			return _failure("The fish is too large for the available carry capacity.")
+		world.fishing.retained_count += 1
 		world.ecology.populations[species][world.player_zone] = available - 1
 	else:
 		world.fishing.released_count += 1
@@ -258,6 +271,14 @@ func land_fishing(retain: bool) -> Dictionary:
 	world.fishing.state = "idle"
 	_log("fish_landed", world.fishing.last_outcome.capitalize() + ".")
 	return {"ok": true, "message": "Fish %s: %s." % ["retained" if retain else "released", species]}
+
+func cancel_fishing() -> Dictionary:
+	if not world.fishing.state in ["cast", "hooked", "rigged"]:
+		return _failure("No fishing encounter to cancel.")
+	world.fishing.state = "idle"
+	world.fishing.last_outcome = "Fishing cancelled; no fish retained."
+	_log("observe", world.fishing.last_outcome)
+	return {"ok": true, "message": world.fishing.last_outcome}
 
 func random_u31() -> int:
 	# Explicit stable stream; independent of Godot/global random state and UI refreshes.

@@ -35,6 +35,9 @@ static func validate(record: Variant, now_ms: int) -> PackedStringArray:
 	if not record is Dictionary or record.size() != fields.size() or not record.has_all(fields):
 		return PackedStringArray(["Condition has missing or unknown fields."])
 	var tick := now_ms - posmod(now_ms, STEP_MS)
+	for field in ["version", "initialized_at_ms", "updated_at_ms"]:
+		if typeof(record[field]) not in [TYPE_INT, TYPE_FLOAT] or not is_finite(float(record[field])) or record[field] != floor(record[field]):
+			return PackedStringArray(["Invalid condition numeric field."])
 	if int(record.version) != VERSION or int(record.initialized_at_ms) < 21600000 or int(record.initialized_at_ms) > tick or int(record.updated_at_ms) != tick or int(record.initialized_at_ms) % STEP_MS != 0:
 		return PackedStringArray(["Invalid condition update boundary."])
 	for field in ["hydration", "energy", "exposure", "sleep_debt", "health"]:

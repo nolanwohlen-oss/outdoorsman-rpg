@@ -4,8 +4,8 @@ project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 godot_bin="${GODOT_BIN:-$project_root/.tools/godot/godot}"
 mkdir -p "$project_root/build"
 touch "$project_root/build/.gdignore"
-if rg -n --glob '*.gd' --glob '*.cfg' --glob '*.py' $'\u2026' "$project_root"; then
-  echo "Forbidden Unicode ellipsis found in source; use three ASCII periods." >&2
+if rg -n --glob '*.gd' --glob '*.cfg' --glob '*.py' '([0-9]+ tokens truncated|content truncated|omitted [0-9]+ lines)' "$project_root"; then
+  echo "Possible truncated tool output found in source; restore the complete source." >&2
   exit 1
 fi
 timeout 90 "$godot_bin" --headless --path "$project_root" --editor --import 2>&1 | tee "$project_root/build/import.log"

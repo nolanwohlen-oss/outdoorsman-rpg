@@ -126,9 +126,12 @@ static func _validate(record: Variant, version: int) -> PackedStringArray:
 		errors.append_array(Ecology.validate(record.ecology, int(record.seed), int(record.clock.game_time_ms)))
 	if version >= 5:
 		errors.append_array(Condition.validate(record.condition, int(record.clock.game_time_ms)))
-		errors.append_array(Inventory.validate(record.inventory))
+		if version >= 8:
+			errors.append_array(Inventory.validate(record.inventory))
+		else:
+			errors.append_array(Inventory.validate_legacy(record.inventory))
 	if version >= 6:
-		errors.append_array(Fishing.validate(record.fishing, int(record.clock.game_time_ms)))
+		errors.append_array(Fishing.validate(record.fishing, int(record.clock.game_time_ms), version == 6))
 	if record.scheduled_events.size() > MAX_PENDING or record.history.size() > MAX_HISTORY or record.history.is_empty():
 		errors.append("Invalid event record count.")
 	if int(record.events_processed) + record.scheduled_events.size() != int(record.next_event_id) - 1:
@@ -202,10 +205,21 @@ static func migrate_record(record: Variant) -> Dictionary:
 			migrated.travel = {"channel_skiff_available": true}
 		if int(schema) < 3:
 			migrated.environment = CoastalEnvironment.create(int(record.seed), int(record.clock.game_time_ms))
-		migrated.ecology = Ecology.create(int(record.seed), int(record.clock.game_time_ms))
-		migrated.condition = Condition.create(int(record.clock.game_time_ms))
-		migrated.inventory = Inventory.create()
-		migrated.fishing = Fishing.create()
+		if int(schema) < 4:
+			migrated.ecology = Ecology.create(int(record.seed), int(record.clock.game_time_ms))
+		if int(schema) < 5:
+			migrated.condition = Condition.create(int(record.clock.game_time_ms))
+			migrated.inventory = Inventory.create()
+		else:
+			migrated.inventory.version = Inventory.VERSION
+			migrated.inventory.capacity_g = Inventory.CAPACITY_G
+			migrated.inventory.items.fish_food_g = 0
+		if int(schema) < 6:
+			migrated.fishing = Fishing.create()
+		elif int(schema) == 6:
+			migrated.fishing.last_catch_weight_g = 250 if migrated.fishing.state == "hooked" else 0
+			migrated.fishing.retained_count = 0
+			migrated.fishing.released_count = 0
 		var errors := validate(migrated)
 		if not errors.is_empty():
 			return {"ok": false, "message": "Cannot migrate legacy save: " + " ".join(errors), "code": "invalid"}

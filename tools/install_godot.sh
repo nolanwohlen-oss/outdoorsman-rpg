@@ -15,7 +15,7 @@ download_verified() {
   (cd "$download_dir" && awk -v file="$filename" '$2 == file || $2 == "*" file {print; found=1} END {if (!found) exit 1}' SHA512-SUMS.txt | sha512sum --check --status)
 }
 
-if [[ ! -x "$install_dir/godot" ]]; then
+if [[ ! -x "$install_dir/godot" ]] || ! timeout 15 "$install_dir/godot" --version >/dev/null 2>&1; then
   archive="Godot_v${godot_version}-stable_linux.x86_64.zip"
   download_verified "$archive"
   unzip -q -o "$download_dir/$archive" -d "$install_dir"

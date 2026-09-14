@@ -32,6 +32,9 @@ static func remove(record: Dictionary, item: String, quantity: int) -> Dictionar
 static func validate(record: Variant) -> PackedStringArray:
 	if not record is Dictionary or record.size() != 3 or not record.has_all(["version", "capacity_g", "items"]):
 		return PackedStringArray(["Inventory has missing or unknown fields."])
+	for field in ["version", "capacity_g"]:
+		if typeof(record[field]) not in [TYPE_INT, TYPE_FLOAT] or not is_finite(float(record[field])) or record[field] != floor(record[field]):
+			return PackedStringArray(["Invalid inventory numeric field."])
 	if int(record.version) != VERSION or int(record.capacity_g) != CAPACITY_G or not record.items is Dictionary or record.items.size() != ITEMS.size():
 		return PackedStringArray(["Invalid inventory version, capacity or item set."])
 	for item in ITEMS:
@@ -41,6 +44,17 @@ static func validate(record: Variant) -> PackedStringArray:
 			return PackedStringArray(["Invalid inventory quantity."])
 	if total_weight_g(record) > int(record.capacity_g):
 		return PackedStringArray(["Inventory exceeds carry capacity."])
+	return PackedStringArray()
+
+static func validate_legacy(record: Variant) -> PackedStringArray:
+	if not record is Dictionary or record.size() != 2 or not record.has_all(["version", "items"]):
+		return PackedStringArray(["Invalid legacy inventory fields."])
+	if typeof(record.version) not in [TYPE_INT, TYPE_FLOAT] or record.version != 1 or not record.items is Dictionary or record.items.size() != 4:
+		return PackedStringArray(["Invalid legacy inventory version or items."])
+	for item in ["water_ml", "food_kcal", "firewood_units", "bait_units"]:
+		var value: Variant = record.items.get(item)
+		if typeof(value) not in [TYPE_INT, TYPE_FLOAT] or not is_finite(float(value)) or value != floor(value) or value < 0 or value > ITEMS[item].max:
+			return PackedStringArray(["Invalid legacy inventory quantity."])
 	return PackedStringArray()
 
 static func normalized(value: Variant) -> Variant:

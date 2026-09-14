@@ -94,7 +94,7 @@ func _process(_delta: float) -> void:
 		_refresh()
 	autosave_game_ms += int(result.get("advanced_ms", 0))
 	if int(kernel.world.game_time_ms / 1000) != last_display_second:
-		_refresh_clock()
+		_refresh()
 		# A departure window can close BEFORE the next environmental tick when
 		# arrival reaches that tick. Keep the preview in sync with displayed time.
 		select_zone(selected_zone_id)
@@ -209,7 +209,7 @@ func _build_interface() -> void:
 	add_child(margin)
 	var layout := _column(margin, 8)
 	layout.add_child(_label("OUTDOORSMAN", 34))
-	layout.add_child(_label("SYSTEMS LAB  /  PHASE 2C", 20, ACCENT))
+	layout.add_child(_label("SYSTEMS LAB  /  PHASE 2H", 20, ACCENT))
 	clock_label = _label("", 30)
 	calendar_label = _label("", 21, MUTED)
 	location_label = _label("", 23, ACCENT)
@@ -234,11 +234,11 @@ func _build_interface() -> void:
 	status_label = _label("", 21, ACCENT)
 	status_label.max_lines_visible = 4
 	layout.add_child(status_label)
-	var build := "v0.6.0 · local build"
+	var build := "v0.9.0 · local build"
 	if FileAccess.file_exists("res://config/build_info.json"):
 		var info = JSON.parse_string(FileAccess.get_file_as_string("res://config/build_info.json"))
 		if info is Dictionary:
-			build = "v0.6.0 · build %s · %s" % [str(info.get("number", "local")).trim_suffix(".0"), info.get("commit", "unknown")]
+			build = "v%s · build %s · %s" % [str(info.get("version", "0.9.0")), str(info.get("number", "local")).trim_suffix(".0"), info.get("commit", "unknown")]
 	layout.add_child(_label(build, 18, MUTED))
 	new_world_dialog = ConfirmationDialog.new()
 	new_world_dialog.title = "Start a new test world?"
@@ -254,7 +254,7 @@ func _build_clock(column: VBoxContainer) -> void:
 	run_button = _button(column, "Run clock", _toggle_running)
 	var row := _row(column)
 	_button(row, "Observe", _observe)
-	_button(row, "Go to camp\n2 min", _move_to.bind("elevated_camp"))
+	_button(row, "Go to camp\nFull route", _move_to.bind("elevated_camp"))
 	column.add_child(HSeparator.new())
 	column.add_child(_label("Fishing test actions", 26, ACCENT))
 	_button(column, "Prepare rig", _fish_rig)
@@ -263,6 +263,7 @@ func _build_clock(column: VBoxContainer) -> void:
 	_button(row, "Set hook", _fish_hook)
 	_button(row, "Land and retain", _fish_land.bind(true))
 	_button(column, "Land and release", _fish_land.bind(false))
+	_button(column, "Cancel fishing", _fish_cancel)
 	column.add_child(_label("Safe waiting", 27, ACCENT))
 	safe_wait_label = _label("", 22, MUTED)
 	column.add_child(safe_wait_label)
@@ -392,7 +393,7 @@ func _build_layers(column: VBoxContainer) -> void:
 	column.add_child(_label("Initial species", 28, ACCENT))
 	for species in catalog.species:
 		column.add_child(_label(species.name, 23))
-	column.add_child(_label("Shown per habitat as potential use only. Populations and behavior arrive with ecology.", 22, MUTED))
+	column.add_child(_label("Habitat suitability catalog. Population totals are tracked in Env; individual animal behavior is not implemented.", 22, MUTED))
 
 func _status(message: String) -> void:
 	if status_label != null:
@@ -514,6 +515,10 @@ func _after_action(result: Dictionary) -> void:
 func _observe() -> void:
 	if _can_act():
 		_after_action(kernel.observe())
+
+func _fish_cancel() -> void:
+	if _can_act():
+		_after_action(kernel.cancel_fishing())
 
 func _fish_rig() -> void:
 	if _can_act():
