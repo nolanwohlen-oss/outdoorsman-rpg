@@ -101,7 +101,7 @@ func _init() -> void:
 		fail("2Q: Phase 2P save did not migrate without hidden time advancement")
 		return
 
-	var corrupt := migrated.record.duplicate(true)
+	var corrupt: Dictionary = migrated.record.duplicate(true)
 	corrupt.fishing.presentation = "soak"
 	if World.validate(corrupt).is_empty():
 		fail("2Q: current save validation accepted an incompatible active presentation")
