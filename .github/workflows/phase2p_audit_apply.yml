@@ -1,0 +1,37 @@
+name: Apply Phase 2P audit corrections
+
+on:
+  push:
+    branches: [phase-2p-audit-fix]
+    paths:
+      - tools/apply_phase2p_audit.py
+      - .github/workflows/phase2p_audit_apply.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase-2p-audit-fix
+      - name: Apply audited source corrections
+        run: python3 tools/apply_phase2p_audit.py
+      - name: Remove branch-only transformation scaffolding
+        run: |
+          git rm -f \
+            tools/apply_phase2p_audit.py \
+            .github/workflows/phase2p_audit_apply.yml \
+            tools/apply_phase2p.py \
+            tools/fix_phase2p_types.py \
+            .github/workflows/phase2p_apply.yml \
+            .github/workflows/phase2p_typefix.yml
+      - name: Commit audited Phase 2P state
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Audit and harden Phase 2P'
+          git push origin HEAD:phase-2p-audit-fix
