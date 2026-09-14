@@ -6,7 +6,8 @@ const CoastalEnvironment = preload("res://simulation/environment.gd")
 const Ecology = preload("res://simulation/ecology.gd")
 const Condition = preload("res://simulation/condition.gd")
 const Inventory = preload("res://simulation/inventory.gd")
-const SCHEMA_VERSION := 5
+const Fishing = preload("res://simulation/fishing.gd")
+const SCHEMA_VERSION := 6
 const MAP_ID := "generic_coastal_testbed_v1"
 const DAY_MS := 86400000
 const START_MS := 21600000 # Day 1, 06:00. Fixed testbed sunrise/sunset: 06:00/18:00.
@@ -16,7 +17,7 @@ const MAX_HISTORY := 200
 const MAX_PENDING := 64
 const ZONES := Map.ZONE_IDS
 const CALENDAR := {"sunrise": 21600000, "sunset": 64800000, "midnight": 0}
-const LOG_KINDS := ["world_started", "observe", "move", "wait_started", "wait_finished", "wait_stopped", "scheduled", "sunrise", "sunset", "midnight", "marker", "wait_interrupt", "random_draw"]
+const LOG_KINDS := ["world_started", "observe", "move", "wait_started", "wait_finished", "wait_stopped", "scheduled", "sunrise", "sunset", "midnight", "marker", "wait_interrupt", "random_draw", "fishing_rigged", "fishing_cast", "fish_hooked", "fish_landed"]
 
 var seed: int = 13092026
 var game_time_ms: int = START_MS
@@ -28,6 +29,7 @@ var environment: Dictionary = {}
 var ecology: Dictionary = {}
 var condition: Dictionary = {}
 var inventory: Dictionary = {}
+var fishing: Dictionary = {}
 var rng_state: int = 1
 var next_event_id: int = 1
 var next_log_id: int = 1
@@ -64,6 +66,7 @@ func to_record() -> Dictionary:
 		"environment": environment.duplicate(true),
 		"ecology": ecology.duplicate(true),
 		"condition": condition.duplicate(true), "inventory": inventory.duplicate(true),
+		"fishing": fishing.duplicate(true),
 		"random_stream": {"algorithm": "park_miller_16807_v1", "state": rng_state},
 		"next_event_id": next_event_id, "next_log_id": next_log_id,
 		"events_processed": events_processed,
@@ -84,6 +87,8 @@ static func _validate(record: Variant, version: int) -> PackedStringArray:
 		keys.append("ecology")
 	if version >= 5:
 		keys.append_array(["condition", "inventory"])
+	if version >= 6:
+		keys.append("fishing")
 	if not has_keys(record, keys):
 		return PackedStringArray(["World record has missing or unknown fields."])
 	if not is_integer(record.schema_version, version, version):
@@ -122,6 +127,8 @@ static func _validate(record: Variant, version: int) -> PackedStringArray:
 	if version >= 5:
 		errors.append_array(Condition.validate(record.condition, int(record.clock.game_time_ms)))
 		errors.append_array(Inventory.validate(record.inventory))
+	if version >= 6:
+		errors.append_array(Fishing.validate(record.fishing, int(record.clock.game_time_ms)))
 	if record.scheduled_events.size() > MAX_PENDING or record.history.size() > MAX_HISTORY or record.history.is_empty():
 		errors.append("Invalid event record count.")
 	if int(record.events_processed) + record.scheduled_events.size() != int(record.next_event_id) - 1:
@@ -182,7 +189,7 @@ static func migrate_record(record: Variant) -> Dictionary:
 		if not current_errors.is_empty():
 			return {"ok": false, "message": " ".join(current_errors), "code": "invalid"}
 		return {"ok": true, "record": record.duplicate(true), "migrated": false}
-	if is_integer(schema, 1, 4):
+	if is_integer(schema, 1, 5):
 		# Validate the old contract BEFORE adding fields; malformed/unknown fields
 		# must not be silently repaired or discarded by migration.
 		var legacy_errors := _validate(record, int(schema))
@@ -198,6 +205,7 @@ static func migrate_record(record: Variant) -> Dictionary:
 		migrated.ecology = Ecology.create(int(record.seed), int(record.clock.game_time_ms))
 		migrated.condition = Condition.create(int(record.clock.game_time_ms))
 		migrated.inventory = Inventory.create()
+		migrated.fishing = Fishing.create()
 		var errors := validate(migrated)
 		if not errors.is_empty():
 			return {"ok": false, "message": "Cannot migrate legacy save: " + " ".join(errors), "code": "invalid"}
@@ -218,6 +226,7 @@ static func from_record(record: Dictionary) -> RefCounted:
 	result.ecology = Ecology.normalized(record.ecology)
 	result.condition = Condition.normalized(record.condition)
 	result.inventory = Inventory.normalized(record.inventory)
+	result.fishing = Fishing.normalized(record.fishing)
 	result.rng_state = int(record.random_stream.state)
 	result.next_event_id = int(record.next_event_id)
 	result.next_log_id = int(record.next_log_id)
