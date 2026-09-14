@@ -109,7 +109,7 @@ static func tackle_condition(record: Dictionary, id: String) -> int:
 static func initialize_tackle(record: Dictionary, id: String) -> Dictionary:
 	var entry: Variant = record.entries.get(id)
 	if not entry is Dictionary or entry.kind not in TRACKED_TACKLE:
-		return {"ok": false, "message": "Select a tracked line or reel."}
+		return {"ok": false, "message": "Select a tracked rig component."}
 	if int(entry.condition) < 0:
 		entry.condition = 1000
 	return {"ok": true, "condition": int(entry.condition)}
@@ -187,7 +187,7 @@ static func service_tackle(record: Dictionary, id: String) -> Dictionary:
 static func replace_tackle(record: Dictionary, id: String) -> Dictionary:
 	var entry: Variant = record.entries.get(id)
 	if not entry is Dictionary or entry.kind not in TRACKED_TACKLE:
-		return {"ok": false, "message": "Select a tracked line or reel."}
+		return {"ok": false, "message": "Select a tracked rig component."}
 	var kind: String = entry.kind
 	var container: String = entry.container
 	record.entries.erase(id)

@@ -405,14 +405,14 @@ func _build_layers(column: VBoxContainer) -> void:
 	column.add_child(item_details)
 	_button(column, "Store selected item at camp", _transfer_item.bind("camp"))
 	_button(column, "Take selected item into pack", _transfer_item.bind("pack"))
-	_button(column, "Service selected line/reel", _service_tackle)
-	_button(column, "Replace selected line/reel · 10 min", _replace_tackle)
+	_button(column, "Service selected rig component", _service_tackle)
+	_button(column, "Replace selected rig component · 10 min", _replace_tackle)
 	_button(column, "Clean selected fish · 10 min", _use_item.bind("clean"))
 	_button(column, "Prepare selected fish as bait · 5 min", _use_item.bind("bait"))
 	_button(column, "Cook selected fish · 15 min · 1 wood", _use_item.bind("cook"))
 	_button(column, "Eat up to 250 g cooked fish · 5 min", _use_item.bind("eat"))
 	column.add_child(_label("Preparation uses the test camp work area and hearth. Cleaning keeps 60% of mass; cooking uses one firewood unit. Raw fish and cut bait cannot be eaten.", 20, MUTED))
-	column.add_child(_label("Transfers require camp. Select any item to inspect it. Fish remain resources, not ration calories. Line and reel condition now wear during fights; service preserves identity, replacement creates a new item ID. Replacement cost is a test placeholder until economy exists.", 20, MUTED))
+	column.add_child(_label("Transfers require camp. Select any item to inspect it. Fish remain resources, not ration calories. Rod, reel, line and terminal-tackle condition now wear during fights; service preserves identity, replacement creates a new item ID. Replacement cost is a test placeholder until economy exists.", 20, MUTED))
 	column.add_child(HSeparator.new())
 	column.add_child(_label("Simulation roadmap", 28, ACCENT))
 	column.add_child(_label("Active prototypes: clock, travel, weather/water, population ledger, condition, fishing, physical item records, pack/cache storage and saves. These are simplified test layers.", 23))
@@ -472,7 +472,7 @@ func _refresh() -> void:
 		var f: Dictionary = kernel.world.fishing
 		var ready := Fishing.landing_ready(f)
 		if f.state == "hooked":
-			fishing_status.text = "HOOKED: %s · %d g\nCue: %s\nFish stamina: %d · Line tension: %d / 1000\nDistance: %.1f m · Fight choices: %d\n%s\nRetained %d · Released %d · Lost %d\nLast handling: %s · condition %d/1000" % [String(f.target_species).replace("_", " ").capitalize(), f.last_catch_weight_g, String(f.fish_cue).to_upper(), f.fish_stamina, f.line_tension, float(f.fish_distance_cm) / 100.0, f.fight_round, "READY TO LAND" if ready else "Keep fighting", f.retained_count, f.released_count, f.lost_count, f.last_handling_method if not f.last_handling_method.is_empty() else "none", f.last_handling_condition]
+			fishing_status.text = "HOOKED: %s · %d g\nCue: %s · Selected drag: %s\nFish stamina: %d · Line tension: %d / 1000\nDistance: %.1f m · Fight choices: %d\n%s\nRetained %d · Released %d · Lost %d\nLast handling: %s · condition %d/1000" % [String(f.target_species).replace("_", " ").capitalize(), f.last_catch_weight_g, String(f.fish_cue).to_upper(), selected_drag.capitalize(), f.fish_stamina, f.line_tension, float(f.fish_distance_cm) / 100.0, f.fight_round, "READY TO LAND" if ready else "Keep fighting", f.retained_count, f.released_count, f.lost_count, f.last_handling_method if not f.last_handling_method.is_empty() else "none", f.last_handling_condition]
 		else:
 			fishing_status.text = "State: %s · Rig: %s\nTarget: %s · Bite: %s\nRetained %d · Released %d · Lost %d" % [f.state, f.rig_mode, f.target_species if not f.target_species.is_empty() else "none", Kernel.time_text(int(f.bite_due_ms)) if f.state == "cast" else "not waiting", f.retained_count, f.released_count, f.lost_count]
 		for button in fight_buttons:
@@ -649,6 +649,7 @@ func _set_drag(value: String) -> void:
 	if value in Fishing.DRAG_SETTINGS:
 		selected_drag = value
 		_status("Drag set to %s for the next fight choice." % value)
+		_refresh()
 
 func _fish_fight(action: String) -> void:
 	if _can_act():
