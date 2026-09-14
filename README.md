@@ -2,7 +2,7 @@
 
 An Android outdoor survival RPG, beginning with a small laboratory for its simulation systems.
 
-**Current milestone: Phase 2F — fishing action foundation (schema 6, development v0.7.0).** The app adds a deterministic rig, cast, bite, hook, land, retain/release test loop on top of condition, inventory and ecology.
+**Current milestone: Phase 2G — fishing accounting (schema 7, development v0.8.0).** The app adds deterministic catch size, inventory food, condition costs, and local ecology removal to the fishing loop.
 
 The Phase 2A delivery spans the minimum contracts, clock and early persistence from the longer roadmap. Phase 2B adds map/habitat access; Phase 2C adds the first environmental integration test, not the complete weather framework. See [Phase 2A](docs/PHASE_2A.md), [Phase 2B](docs/PHASE_2B.md) and [Phase 2C contracts and limits](docs/PHASE_2C.md).
 
