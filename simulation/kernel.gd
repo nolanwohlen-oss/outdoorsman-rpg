@@ -221,6 +221,10 @@ func rig_fishing(mode: String = "lure", bait_item_id: String = "") -> Dictionary
 	var terminal_id := Inventory.carried_id(world.inventory, "test_spoon" if mode == "lure" else "test_hook")
 	if rod_id.is_empty() or reel_id.is_empty() or line_id.is_empty() or terminal_id.is_empty():
 		return _failure("Carry the test rod, reel, line, and compatible terminal tackle.")
+	Inventory.initialize_tackle(world.inventory, line_id)
+	Inventory.initialize_tackle(world.inventory, reel_id)
+	if Inventory.tackle_condition(world.inventory, line_id) <= 0 or Inventory.tackle_condition(world.inventory, reel_id) <= 0:
+		return _failure("Service or replace broken line/reel at camp before rigging.")
 	if mode == "bait":
 		var bait: Variant = world.inventory.entries.get(bait_item_id)
 		if not bait is Dictionary or bait.kind != "cut_bait" or bait.container != "pack" or int(bait.mass_g) < 50:
@@ -298,9 +302,23 @@ func fight_fishing(action: String) -> Dictionary:
 	if not restored.ok:
 		return _failure("Cannot start fight action from invalid world state.")
 	candidate._advance(Fishing.FIGHT_ACTION_MS)
-	var result := Fishing.resolve_round(candidate.world.fishing, action, candidate.world.environment.water_by_zone[candidate.world.player_zone])
+	var water: Dictionary = candidate.world.environment.water_by_zone[candidate.world.player_zone]
+	var result := Fishing.resolve_round(candidate.world.fishing, action, water)
 	if not result.ok:
 		return result
+	var line_id: String = candidate.world.fishing.line_item_id
+	var reel_id: String = candidate.world.fishing.reel_item_id
+	var power_load := clampi(int(Fishing.fight_power(candidate.world.fishing, water) / 250), 0, 8)
+	var line_wear := 6 + clampi(int(abs(int(candidate.world.fishing.line_tension) - 500) / 50), 0, 12) + power_load
+	var reel_wear := 3 + power_load + (8 if action == "reel" else (4 if action == "pressure" else 2))
+	var wear := Inventory.apply_tackle_wear(candidate.world.inventory, line_id, reel_id, line_wear, reel_wear, result.status == "overload")
+	if not wear.ok:
+		return _failure(wear.message)
+	if result.status == "continue" and not String(wear.broken).is_empty():
+		result.status = "tackle_failure"
+		result.message = "The %s failed under load; the fish escaped." % wear.broken
+	elif result.status == "overload":
+		result.message += " Line condition is now 0/1000."
 	var species: String = candidate.world.fishing.target_species
 	if result.status != "continue":
 		candidate.world.fishing.lost_count += 1
@@ -309,7 +327,7 @@ func fight_fishing(action: String) -> Dictionary:
 		candidate._log("fish_lost", candidate.world.fishing.last_outcome)
 	else:
 		var ready := Fishing.landing_ready(candidate.world.fishing)
-		var detail := "%s against %s; stamina %d, tension %d, distance %d cm%s." % [action.replace("_", " ").capitalize(), species, candidate.world.fishing.fish_stamina, candidate.world.fishing.line_tension, candidate.world.fishing.fish_distance_cm, "; ready to land" if ready else "; next cue " + candidate.world.fishing.fish_cue]
+		var detail := "%s against %s; stamina %d, tension %d, distance %d cm; line %d/1000, reel %d/1000%s." % [action.replace("_", " ").capitalize(), species, candidate.world.fishing.fish_stamina, candidate.world.fishing.line_tension, candidate.world.fishing.fish_distance_cm, wear.line, wear.reel, "; ready to land" if ready else "; next cue " + candidate.world.fishing.fish_cue]
 		candidate._log("fish_fight", detail)
 		result.message = detail
 	var errors := World.validate(candidate.world.to_record())
@@ -401,6 +419,56 @@ func use_inventory(id: String, action: String) -> Dictionary:
 		return _failure("Action validation failed; world unchanged.")
 	world = candidate.world
 	return {"ok": true, "message": result.message}
+
+func service_tackle(id: String) -> Dictionary:
+	if world.fishing.state != "idle":
+		return _failure("Finish or cancel fishing before servicing tackle.")
+	if world.player_zone != "elevated_camp":
+		return _failure("Tackle service requires the elevated camp work area.")
+	var candidate = get_script().new(world.seed)
+	var restored: Dictionary = candidate.restore(world.to_record())
+	if not restored.ok:
+		return _failure("Cannot start service from invalid world state.")
+	var result := Inventory.service_tackle(candidate.world.inventory, id)
+	if not result.ok:
+		return result
+	var duration := int(result.minutes) * MINUTE_MS
+	if world.game_time_ms > World.MAX_TIME_MS - duration:
+		return _failure("Service exceeds the supported clock range.")
+	var elapsed: Dictionary = candidate._advance(duration, true)
+	if not elapsed.ok or elapsed.interrupted:
+		return _failure("A scheduled interruption blocks service; world unchanged.")
+	candidate._log("observe", result.message)
+	var errors := World.validate(candidate.world.to_record())
+	if not errors.is_empty():
+		return _failure("Service validation failed; world unchanged.")
+	world = candidate.world
+	return {"ok": true, "message": result.message}
+
+func replace_tackle(id: String) -> Dictionary:
+	if world.fishing.state != "idle":
+		return _failure("Finish or cancel fishing before replacing tackle.")
+	if world.player_zone != "elevated_camp":
+		return _failure("Tackle replacement requires the elevated camp work area.")
+	var candidate = get_script().new(world.seed)
+	var restored: Dictionary = candidate.restore(world.to_record())
+	if not restored.ok:
+		return _failure("Cannot start replacement from invalid world state.")
+	var result := Inventory.replace_tackle(candidate.world.inventory, id)
+	if not result.ok:
+		return result
+	var duration := int(result.minutes) * MINUTE_MS
+	if world.game_time_ms > World.MAX_TIME_MS - duration:
+		return _failure("Replacement exceeds the supported clock range.")
+	var elapsed: Dictionary = candidate._advance(duration, true)
+	if not elapsed.ok or elapsed.interrupted:
+		return _failure("A scheduled interruption blocks replacement; world unchanged.")
+	candidate._log("observe", result.message + " Test-bench replacement has no economy cost yet.")
+	var errors := World.validate(candidate.world.to_record())
+	if not errors.is_empty():
+		return _failure("Replacement validation failed; world unchanged.")
+	world = candidate.world
+	return {"ok": true, "message": result.message + " (test-bench spare; economy deferred)"}
 
 func cancel_fishing() -> Dictionary:
 	if not world.fishing.state in ["cast", "hooked", "rigged"]:
