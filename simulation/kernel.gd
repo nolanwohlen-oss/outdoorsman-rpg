@@ -244,10 +244,12 @@ func land_fishing(retain: bool) -> Dictionary:
 		var available: int = int(world.ecology.populations[species].get(world.player_zone, 0))
 		if available <= 0:
 			return _failure("The fish was lost before landing.")
-		world.ecology.populations[species][world.player_zone] = available - 1
 		world.fishing.retained_count += 1
-		world.inventory.items.food_kcal += maxi(50, int(weight / 4))
-		world.inventory.items.food_kcal = mini(24000, world.inventory.items.food_kcal)
+		var stored := Inventory.add(world.inventory, "fish_food_g", weight)
+		if not stored.ok:
+			world.fishing.retained_count -= 1
+			return _failure("The fish is too large for the available carry capacity.")
+		world.ecology.populations[species][world.player_zone] = available - 1
 	else:
 		world.fishing.released_count += 1
 	world.condition.energy = maxi(0, int(world.condition.energy) - 3)
