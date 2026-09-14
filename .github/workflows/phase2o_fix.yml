@@ -1,0 +1,26 @@
+name: Fix Phase 2O regression
+
+on:
+  push:
+    branches: [phase-2o-tackle-condition]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.event.head_commit.message == 'Run Phase 2O regression expectation fix'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: phase-2o-tackle-condition
+          persist-credentials: true
+      - run: python3 tools/fix_phase2o_regression.py
+      - shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Test Phase 2O broken-line recovery contract'
+          git push origin HEAD:phase-2o-tackle-condition
