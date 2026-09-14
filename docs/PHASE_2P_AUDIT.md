@@ -25,6 +25,10 @@ No schema bump is required. Phase 2P adds action inputs and activates semantics 
 
 The deterministic wear rates, load limits and drag offsets remain systems-lab coefficients rather than final fishing physics. Line material/diameter, knot strength, rod power/action, reel drag hardware, leader construction, hook gauge, lure weight and player skill remain deferred exactly as recorded in `PHASE_2P.md`.
 
+## Validation note
+
+The historical Phase 2M overload regression is intentionally expressed in weakest-link terms after the audit. This documentation commit also provides a normal repository-authored trigger for validating the corrected branch after GitHub withheld the bot-authored PR run.
+
 ## Remaining external gate
 
 Automated validation cannot substitute for the Phase 2P physical Android checklist. Phase 2Q must not depend on 2P until the corrected v0.17.0 build passes that phone test.
