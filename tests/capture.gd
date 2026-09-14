@@ -65,6 +65,22 @@ func _capture() -> void:
 	await RenderingServer.frame_post_draw
 	if root.get_texture().get_image().save_png("res://build/blocked-route-preview.png") != OK:
 		error = FAILED
+	# Capture the Phase 2M hooked-fish controls and diagnostic state.
+	app.kernel = load("res://simulation/kernel.gd").new(42)
+	app.session.kernel = app.kernel
+	app.kernel.rig_fishing()
+	app.kernel.cast_fishing()
+	app.kernel.advance_game_ms(load("res://simulation/fishing.gd").BITE_DELAY_MS)
+	app.kernel.hook_fishing()
+	app.tabs.current_tab = 0
+	app._refresh()
+	await process_frame
+	await process_frame
+	app.tabs.get_child(0).scroll_vertical = 140
+	await process_frame
+	await RenderingServer.frame_post_draw
+	if root.get_texture().get_image().save_png("res://build/fight-preview.png") != OK:
+		error = FAILED
 	app.queue_free()
 	await process_frame
 	quit(0 if error == OK else 1)

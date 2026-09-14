@@ -1,15 +1,15 @@
 extends RefCounted
 ## Versioned physical records. Commands must preserve identity and mass.
 
-const VERSION := 6
+const VERSION := 7
 const CAPACITY_G := 15000
 const Ecology = preload("res://simulation/ecology.gd")
 const Map = preload("res://simulation/testbed_map.gd")
 const CONTAINERS := {"pack": 15000, "camp": 50000}
 # Quantities are mL for water, kcal for legacy ration compatibility, units for
 # wood/bait, and grams for unidentified historical fish. Mass is separate.
-const DEFINITIONS := {"water_ml": [1, 1], "food_kcal": [1, 4], "firewood_units": [100, 1], "bait_units": [50, 1], "legacy_fish": [1, 1], "whole_fish": [1, 1], "cleaned_fish": [1, 1], "cooked_fish": [1, 1], "cut_bait": [1, 1], "test_rod": [300, 1], "test_spoon": [20, 1], "test_hook": [5, 1]}
-const TEST_EQUIPMENT := ["test_rod", "test_spoon", "test_hook"]
+const DEFINITIONS := {"water_ml": [1, 1], "food_kcal": [1, 4], "firewood_units": [100, 1], "bait_units": [50, 1], "legacy_fish": [1, 1], "whole_fish": [1, 1], "cleaned_fish": [1, 1], "cooked_fish": [1, 1], "cut_bait": [1, 1], "test_rod": [300, 1], "test_spoon": [20, 1], "test_hook": [5, 1], "test_reel": [260, 1], "test_line": [50, 1]}
+const TEST_EQUIPMENT := ["test_rod", "test_spoon", "test_hook", "test_reel", "test_line"]
 const PRODUCTS := ["cleaned_fish", "cooked_fish", "cut_bait"]
 
 static func use_item(record: Dictionary, id: String, action: String, zone: String) -> Dictionary:
@@ -150,13 +150,13 @@ static func transfer(record: Dictionary, id: String, destination: String, zone: 
 static func _integer(value: Variant, minimum: int, maximum: int) -> bool:
 	return typeof(value) in [TYPE_INT, TYPE_FLOAT] and is_finite(float(value)) and value == floor(value) and value >= minimum and value <= maximum
 
-static func validate(record: Variant, now_ms: int = 3153600000000, legacy_v3: bool = false, legacy_v4: bool = false, legacy_v5: bool = false) -> PackedStringArray:
+static func validate(record: Variant, now_ms: int = 3153600000000, legacy_v3: bool = false, legacy_v4: bool = false, legacy_v5: bool = false, legacy_v6: bool = false) -> PackedStringArray:
 	if not record is Dictionary or record.size() != 3 or not record.has_all(["version", "next_id", "entries"]):
 		return PackedStringArray(["Invalid physical inventory fields."])
-	var expected := 3 if legacy_v3 else (4 if legacy_v4 else (5 if legacy_v5 else VERSION))
+	var expected := 3 if legacy_v3 else (4 if legacy_v4 else (5 if legacy_v5 else (6 if legacy_v6 else VERSION)))
 	if not _integer(record.version, expected, expected) or not _integer(record.next_id, 1, 2147483647) or not record.entries is Dictionary or record.entries.size() > 1000:
 		return PackedStringArray(["Invalid physical inventory header."])
-	var equipment_counts := {"test_rod": 0, "test_spoon": 0, "test_hook": 0}
+	var equipment_counts := {"test_rod": 0, "test_spoon": 0, "test_hook": 0, "test_reel": 0, "test_line": 0}
 	for id in record.entries:
 		if not id is String or not id.begins_with("item_") or not id.trim_prefix("item_").is_valid_int():
 			return PackedStringArray(["Invalid item identity."])
@@ -172,7 +172,10 @@ static func validate(record: Variant, now_ms: int = 3153600000000, legacy_v3: bo
 			return PackedStringArray(["Invalid item quantity, mass, condition or time."])
 		if legacy_v3 and e.kind in PRODUCTS:
 			return PackedStringArray(["Product is not supported by the old inventory version."])
-		if e.kind in TEST_EQUIPMENT and (legacy_v3 or legacy_v4 or (legacy_v5 and e.kind == "test_hook") or e.quantity != 1):
+		var unsupported_equipment := legacy_v3 or legacy_v4
+		unsupported_equipment = unsupported_equipment or (legacy_v5 and e.kind in ["test_hook", "test_reel", "test_line"])
+		unsupported_equipment = unsupported_equipment or (legacy_v6 and e.kind in ["test_reel", "test_line"])
+		if e.kind in TEST_EQUIPMENT and (unsupported_equipment or e.quantity != 1):
 			return PackedStringArray(["Invalid equipment record."])
 		if e.kind in TEST_EQUIPMENT:
 			equipment_counts[e.kind] += 1
@@ -189,10 +192,17 @@ static func validate(record: Variant, now_ms: int = 3153600000000, legacy_v3: bo
 	for container in CONTAINERS:
 		if total_weight_g(record, container) > int(CONTAINERS[container]):
 			return PackedStringArray(["Container exceeds capacity."])
-	if not legacy_v3 and not legacy_v4 and not legacy_v5:
-		for kind in TEST_EQUIPMENT:
-			if int(equipment_counts[kind]) != 1:
-				return PackedStringArray(["Current inventory requires exactly one %s." % kind])
+	var required_equipment: Array = []
+	if legacy_v5:
+		required_equipment = ["test_rod", "test_spoon"]
+	elif legacy_v6:
+		required_equipment = ["test_rod", "test_spoon", "test_hook"]
+	elif not legacy_v3 and not legacy_v4:
+		required_equipment = TEST_EQUIPMENT
+	for kind in TEST_EQUIPMENT:
+		var expected_count := 1 if kind in required_equipment else 0
+		if int(equipment_counts[kind]) != expected_count:
+			return PackedStringArray(["Inventory equipment set does not match its version: %s." % kind])
 	return PackedStringArray()
 const ITEMS := {"water_ml": {"min": 0, "max": 12000, "grams_per_unit": 1}, "food_kcal": {"min": 0, "max": 24000, "grams_per_unit": 1}, "firewood_units": {"min": 0, "max": 100, "grams_per_unit": 100}, "bait_units": {"min": 0, "max": 100, "grams_per_unit": 50}, "fish_food_g": {"min": 0, "max": 10000, "grams_per_unit": 1}}
 

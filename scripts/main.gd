@@ -8,6 +8,7 @@ const SaveStore = preload("res://simulation/save_store.gd")
 const Map = preload("res://simulation/testbed_map.gd")
 const Ecology = preload("res://simulation/ecology.gd")
 const Inventory = preload("res://simulation/inventory.gd")
+const Fishing = preload("res://simulation/fishing.gd")
 const TEXT := Color("e8eee2")
 const MUTED := Color("a8bcb3")
 const ACCENT := Color("d8bd83")
@@ -53,6 +54,8 @@ var inventory_label: Label
 var item_picker: OptionButton
 var item_details: Label
 var fishing_status: Label
+var fight_buttons: Array[Button] = []
+var land_buttons: Array[Button] = []
 
 func _ready() -> void:
 	theme = _theme()
@@ -213,7 +216,7 @@ func _build_interface() -> void:
 	add_child(margin)
 	var layout := _column(margin, 8)
 	layout.add_child(_label("OUTDOORSMAN", 34))
-	layout.add_child(_label("SYSTEMS LAB  /  PHASE 2L", 20, ACCENT))
+	layout.add_child(_label("SYSTEMS LAB  /  PHASE 2M", 20, ACCENT))
 	clock_label = _label("", 30)
 	calendar_label = _label("", 21, MUTED)
 	location_label = _label("", 23, ACCENT)
@@ -238,11 +241,11 @@ func _build_interface() -> void:
 	status_label = _label("", 21, ACCENT)
 	status_label.max_lines_visible = 4
 	layout.add_child(status_label)
-	var build := "v0.13.0 · local build"
+	var build := "v0.14.0 · local build"
 	if FileAccess.file_exists("res://config/build_info.json"):
 		var info = JSON.parse_string(FileAccess.get_file_as_string("res://config/build_info.json"))
 		if info is Dictionary:
-			build = "v%s · build %s · %s" % [str(info.get("version", "0.13.0")), str(info.get("number", "local")).trim_suffix(".0"), info.get("commit", "unknown")]
+			build = "v%s · build %s · %s" % [str(info.get("version", "0.14.0")), str(info.get("number", "local")).trim_suffix(".0"), info.get("commit", "unknown")]
 	layout.add_child(_label(build, 18, MUTED))
 	new_world_dialog = ConfirmationDialog.new()
 	new_world_dialog.title = "Start a new test world?"
@@ -267,10 +270,15 @@ func _build_clock(column: VBoxContainer) -> void:
 	_button(column, "Prepare spoon rig", _fish_rig.bind("lure"))
 	_button(column, "Prepare bait rig with selected item", _fish_rig.bind("bait"))
 	_button(column, "Cast selected rig", _fish_cast)
+	_button(column, "Set hook", _fish_hook)
+	column.add_child(_label("Fight cue test: surge → give line; pull → hold pressure; slack or tired → reel in. Each choice costs 30 game seconds. Exact values below are lab diagnostics, not the final HUD.", 19, MUTED))
 	row = _row(column)
-	_button(row, "Set hook", _fish_hook)
-	_button(row, "Land and retain", _fish_land.bind(true))
-	_button(column, "Land and release", _fish_land.bind(false))
+	fight_buttons.append(_button(row, "Give line", _fish_fight.bind("give_line")))
+	fight_buttons.append(_button(row, "Hold pressure", _fish_fight.bind("pressure")))
+	fight_buttons.append(_button(column, "Reel in", _fish_fight.bind("reel")))
+	row = _row(column)
+	land_buttons.append(_button(row, "Land and retain", _fish_land.bind(true)))
+	land_buttons.append(_button(row, "Land and release", _fish_land.bind(false)))
 	_button(column, "Cancel fishing", _fish_cancel)
 	column.add_child(_label("Safe waiting", 27, ACCENT))
 	safe_wait_label = _label("", 22, MUTED)
@@ -452,7 +460,15 @@ func _refresh() -> void:
 	run_button.disabled = save_blocked or not session.blocked.is_empty()
 	if fishing_status != null:
 		var f: Dictionary = kernel.world.fishing
-		fishing_status.text = "State: %s · Rig: %s\nTarget: %s · Bite: %s" % [f.state, f.rig_mode, f.target_species if not f.target_species.is_empty() else "none", Kernel.time_text(int(f.bite_due_ms)) if f.state == "cast" else "not waiting"]
+		var ready := Fishing.landing_ready(f)
+		if f.state == "hooked":
+			fishing_status.text = "HOOKED: %s · %d g\nCue: %s\nFish stamina: %d · Line tension: %d / 1000\nDistance: %.1f m · Fight choices: %d\n%s\nRetained %d · Released %d · Lost %d" % [String(f.target_species).replace("_", " ").capitalize(), f.last_catch_weight_g, String(f.fish_cue).to_upper(), f.fish_stamina, f.line_tension, float(f.fish_distance_cm) / 100.0, f.fight_round, "READY TO LAND" if ready else "Keep fighting", f.retained_count, f.released_count, f.lost_count]
+		else:
+			fishing_status.text = "State: %s · Rig: %s\nTarget: %s · Bite: %s\nRetained %d · Released %d · Lost %d" % [f.state, f.rig_mode, f.target_species if not f.target_species.is_empty() else "none", Kernel.time_text(int(f.bite_due_ms)) if f.state == "cast" else "not waiting", f.retained_count, f.released_count, f.lost_count]
+		for button in fight_buttons:
+			button.disabled = save_blocked or f.state != "hooked" or ready
+		for button in land_buttons:
+			button.disabled = save_blocked or not ready
 	if condition_label != null:
 		var c: Dictionary = kernel.world.condition
 		condition_label.text = "Hydration %d/1000 · Energy %d/1000\nExposure %d/1000 · Sleep debt %d/1000\nHealth %d/1000 · Updated %s" % [c.hydration, c.energy, c.exposure, c.sleep_debt, c.health, Kernel.time_text(int(c.updated_at_ms))]
@@ -531,6 +547,7 @@ func select_zone(zone_id: String) -> void:
 						species_names.append(species.name)
 			inspector_body.text = "%s\n\nTerrain: %s\nExposure: %s\nHabitat: %s\nPotential species: %s\n\nRoutes from here:\n%s" % [zone.purpose, record.terrain, record.exposure, ", ".join(record.habitat_tags), ", ".join(species_names) if not species_names.is_empty() else "None", "\n".join(route_lines)]
 	var travel := kernel.travel_result(zone_id)
+	var fishing_blocked: bool = kernel.world.fishing.state != "idle"
 	if zone_id == kernel.world.player_zone:
 		route_label.text = "Current location. Choose a linked zone to travel."
 		move_button.text = "You are here"
@@ -541,10 +558,10 @@ func select_zone(zone_id: String) -> void:
 		var route: Dictionary = travel.route
 		route_label.text = "Direct route: " + Map.route_text(route)
 		move_button.text = "Travel by %s · %d min" % [route.mode, int(route.minutes)]
-		move_button.disabled = save_blocked
+		move_button.disabled = save_blocked or fishing_blocked
 		var plan := kernel.route_plan(zone_id)
 		trip_button.text = "Travel full route · %d min" % int(plan.minutes) if plan.ok else "Full route blocked"
-		trip_button.disabled = save_blocked or not plan.ok
+		trip_button.disabled = save_blocked or fishing_blocked or not plan.ok
 	else:
 		route_label.text = "Blocked: " + travel.reason
 		move_button.text = "Route unavailable"
@@ -556,11 +573,13 @@ func select_zone(zone_id: String) -> void:
 				plan_names.append(_zone_name(String(stop)))
 			route_label.text = "Full route: " + " → ".join(plan_names) + " · %d min" % int(plan.minutes)
 			trip_button.text = "Travel full route · %d min" % int(plan.minutes)
-			trip_button.disabled = save_blocked
+			trip_button.disabled = save_blocked or fishing_blocked
 		else:
 			trip_button.text = "Full route blocked"
 			trip_button.disabled = true
 			route_label.text += "\nFull route blocked: " + String(plan.reason)
+	if fishing_blocked and zone_id != kernel.world.player_zone:
+		route_label.text += "\nTravel locked: finish or cancel the active fishing rig."
 	_refresh_environment()
 
 func _toggle_running() -> void:
@@ -605,6 +624,10 @@ func _fish_cast() -> void:
 func _fish_hook() -> void:
 	if _can_act():
 		_after_action(kernel.hook_fishing())
+
+func _fish_fight(action: String) -> void:
+	if _can_act():
+		_after_action(kernel.fight_fishing(action))
 
 func _fish_land(retain: bool) -> void:
 	if _can_act():

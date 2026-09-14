@@ -109,7 +109,7 @@ func advance_real_us(real_us: int) -> Dictionary:
 	return _advance(delta_ms)
 
 func move(destination: String) -> Dictionary:
-	if world.fishing.state in ["cast", "hooked"]:
+	if world.fishing.state != "idle":
 		return _failure("Finish or cancel fishing before travelling.")
 	var resolution := travel_result(destination)
 	if not resolution.ok:
@@ -179,7 +179,7 @@ func route_plan(destination: String) -> Dictionary:
 	return {"ok": true, "path": path, "legs": legs, "minutes": int(total / MINUTE_MS)}
 
 func move_plan(destination: String) -> Dictionary:
-	if world.fishing.state in ["cast", "hooked"]:
+	if world.fishing.state != "idle":
 		return _failure("Finish or cancel fishing before travelling.")
 	var plan := route_plan(destination)
 	if not plan.ok:
@@ -209,16 +209,18 @@ func observe() -> Dictionary:
 	return {"ok": true, "message": "Observation added to the log."}
 
 func rig_fishing(mode: String = "lure", bait_item_id: String = "") -> Dictionary:
-	if world.fishing.state in ["cast", "hooked"]:
+	if world.fishing.state != "idle":
 		return _failure("Finish or cancel the current fishing encounter first.")
 	if world.player_zone == "elevated_camp" or not world.environment.water_by_zone[world.player_zone].water_present:
 		return _failure("Fishing requires a water zone.")
 	if mode not in ["lure", "bait"]:
 		return _failure("Choose a supported rig type.")
 	var rod_id := Inventory.carried_id(world.inventory, "test_rod")
+	var reel_id := Inventory.carried_id(world.inventory, "test_reel")
+	var line_id := Inventory.carried_id(world.inventory, "test_line")
 	var terminal_id := Inventory.carried_id(world.inventory, "test_spoon" if mode == "lure" else "test_hook")
-	if rod_id.is_empty() or terminal_id.is_empty():
-		return _failure("Carry the test rod and compatible terminal tackle.")
+	if rod_id.is_empty() or reel_id.is_empty() or line_id.is_empty() or terminal_id.is_empty():
+		return _failure("Carry the test rod, reel, line, and compatible terminal tackle.")
 	if mode == "bait":
 		var bait: Variant = world.inventory.entries.get(bait_item_id)
 		if not bait is Dictionary or bait.kind != "cut_bait" or bait.container != "pack" or int(bait.mass_g) < 50:
@@ -232,7 +234,10 @@ func rig_fishing(mode: String = "lure", bait_item_id: String = "") -> Dictionary
 	world.fishing.bait_item_id = bait_item_id if mode == "bait" else ""
 	world.fishing.rod_item_id = rod_id
 	world.fishing.terminal_item_id = terminal_id
-	_log("fishing_rigged", "%s rig prepared at %s with %s and %s." % [mode.capitalize(), world.player_zone, rod_id, terminal_id])
+	world.fishing.reel_item_id = reel_id
+	world.fishing.line_item_id = line_id
+	Fishing.clear_fight(world.fishing)
+	_log("fishing_rigged", "%s rig prepared at %s with %s, %s, %s, and %s." % [mode.capitalize(), world.player_zone, rod_id, reel_id, line_id, terminal_id])
 	return {"ok": true, "message": "%s rig prepared." % mode.capitalize()}
 
 func cast_fishing() -> Dictionary:
@@ -265,50 +270,105 @@ func hook_fishing() -> Dictionary:
 		return _failure("Nothing is waiting on the line.")
 	if world.game_time_ms < int(world.fishing.bite_due_ms):
 		return _failure("No bite yet; keep the line out.")
+	var link_errors := Fishing.validate_inventory_links(world.fishing, world.inventory)
+	if not link_errors.is_empty():
+		return _failure(link_errors[0])
 	world.fishing.state = "hooked"
 	world.fishing.last_catch_weight_g = 250 + posmod(world.seed + world.game_time_ms + world.player_zone.length() * 31, 1750)
-	_log("fish_hooked", "Hook set on %s." % world.fishing.target_species)
-	return {"ok": true, "message": "Fish hooked: %s." % world.fishing.target_species}
+	Fishing.start_fight(world.fishing, world.environment.water_by_zone[world.player_zone])
+	_log("fish_hooked", "Hook set on %s; first cue: %s." % [world.fishing.target_species, world.fishing.fish_cue])
+	return {"ok": true, "message": "Fish hooked: %s. Read the %s cue." % [world.fishing.target_species, world.fishing.fish_cue]}
+
+func fight_fishing(action: String) -> Dictionary:
+	if world.fishing.zone != world.player_zone:
+		return _failure("Return to the encounter zone or cancel fishing.")
+	if world.fishing.state != "hooked":
+		return _failure("Set a hook before fighting a fish.")
+	if action not in Fishing.FIGHT_ACTIONS:
+		return _failure("Choose give line, hold pressure, or reel in.")
+	if Fishing.landing_ready(world.fishing):
+		return _failure("The fish is ready to land. Retain or release it now.")
+	var link_errors := Fishing.validate_inventory_links(world.fishing, world.inventory)
+	if not link_errors.is_empty():
+		return _failure(link_errors[0])
+	if world.game_time_ms > World.MAX_TIME_MS - Fishing.FIGHT_ACTION_MS:
+		return _failure("Fight action exceeds the supported clock range.")
+	var candidate = get_script().new(world.seed)
+	var restored: Dictionary = candidate.restore(world.to_record())
+	if not restored.ok:
+		return _failure("Cannot start fight action from invalid world state.")
+	candidate._advance(Fishing.FIGHT_ACTION_MS)
+	var result := Fishing.resolve_round(candidate.world.fishing, action, candidate.world.environment.water_by_zone[candidate.world.player_zone])
+	if not result.ok:
+		return result
+	var species: String = candidate.world.fishing.target_species
+	if result.status != "continue":
+		candidate.world.fishing.lost_count += 1
+		candidate.world.fishing.last_outcome = "%s lost: %s" % [species, result.message]
+		Fishing.clear_active(candidate.world.fishing)
+		candidate._log("fish_lost", candidate.world.fishing.last_outcome)
+	else:
+		var ready := Fishing.landing_ready(candidate.world.fishing)
+		var detail := "%s against %s; stamina %d, tension %d, distance %d cm%s." % [action.replace("_", " ").capitalize(), species, candidate.world.fishing.fish_stamina, candidate.world.fishing.line_tension, candidate.world.fishing.fish_distance_cm, "; ready to land" if ready else "; next cue " + candidate.world.fishing.fish_cue]
+		candidate._log("fish_fight", detail)
+		result.message = detail
+	var errors := World.validate(candidate.world.to_record())
+	if not errors.is_empty():
+		return _failure("Fight action validation failed; world unchanged.")
+	world = candidate.world
+	return {"ok": true, "status": result.status, "message": world.fishing.last_outcome if result.status != "continue" else result.message}
 
 func land_fishing(retain: bool) -> Dictionary:
 	if world.fishing.zone != world.player_zone:
 		return _failure("Return to the encounter zone or cancel fishing.")
 	if world.fishing.state != "hooked":
 		return _failure("Set a hook before landing a fish.")
-	var species: String = world.fishing.target_species
-	var weight: int = int(world.fishing.last_catch_weight_g)
+	if not Fishing.landing_ready(world.fishing):
+		return _failure("Wear the fish down and bring it within landing range first.")
+	var link_errors := Fishing.validate_inventory_links(world.fishing, world.inventory)
+	if not link_errors.is_empty():
+		return _failure(link_errors[0])
+	if world.game_time_ms > World.MAX_TIME_MS - Fishing.LANDING_ACTION_MS:
+		return _failure("Landing action exceeds the supported clock range.")
+	var candidate = get_script().new(world.seed)
+	var restored: Dictionary = candidate.restore(world.to_record())
+	if not restored.ok:
+		return _failure("Cannot start landing action from invalid world state.")
+	candidate._advance(Fishing.LANDING_ACTION_MS)
+	var species: String = candidate.world.fishing.target_species
+	var weight: int = int(candidate.world.fishing.last_catch_weight_g)
 	if retain:
-		var available: int = int(world.ecology.populations[species].get(world.player_zone, 0))
+		var available: int = int(candidate.world.ecology.populations[species].get(candidate.world.player_zone, 0))
 		if available <= 0:
 			return _failure("The fish was lost before landing.")
-		var stored := Inventory.add_fish(world.inventory, species, weight, world.game_time_ms, world.player_zone)
+		var stored := Inventory.add_fish(candidate.world.inventory, species, weight, candidate.world.game_time_ms, candidate.world.player_zone)
 		if not stored.ok:
 			return _failure("The fish is too large for the available carry capacity.")
-		world.fishing.retained_count += 1
-		world.ecology.populations[species][world.player_zone] = available - 1
+		candidate.world.fishing.retained_count += 1
+		candidate.world.ecology.populations[species][candidate.world.player_zone] = available - 1
 	else:
-		world.fishing.released_count += 1
-	world.condition.energy = maxi(0, int(world.condition.energy) - 3)
-	world.condition.hydration = maxi(0, int(world.condition.hydration) - 1)
-	world.fishing.last_outcome = ("retained " if retain else "released ") + "%s (%dg)" % [species, weight]
-	world.fishing.state = "idle"
-	world.fishing.zone = ""
-	world.fishing.target_species = ""
-	world.fishing.bite_due_ms = 0
-	world.fishing.bait_item_id = ""
-	world.fishing.rod_item_id = ""
-	world.fishing.terminal_item_id = ""
-	_log("fish_landed", world.fishing.last_outcome.capitalize() + ".")
+		candidate.world.fishing.released_count += 1
+	candidate.world.condition.energy = maxi(0, int(candidate.world.condition.energy) - 3)
+	candidate.world.condition.hydration = maxi(0, int(candidate.world.condition.hydration) - 1)
+	candidate.world.fishing.last_outcome = ("retained " if retain else "released ") + "%s (%dg)" % [species, weight]
+	Fishing.clear_active(candidate.world.fishing)
+	candidate._log("fish_landed", candidate.world.fishing.last_outcome.capitalize() + ".")
+	var errors := World.validate(candidate.world.to_record())
+	if not errors.is_empty():
+		return _failure("Landing validation failed; world unchanged.")
+	world = candidate.world
 	return {"ok": true, "message": "Fish %s: %s." % ["retained" if retain else "released", species]}
 
 func transfer_inventory(id: String, destination: String) -> Dictionary:
+	if world.fishing.state != "idle":
+		return _failure("Finish or cancel fishing before moving equipment or resources.")
 	var result := Inventory.transfer(world.inventory, id, destination, world.player_zone)
 	if result.ok:
 		_log("observe", result.message)
 	return result
 
 func use_inventory(id: String, action: String) -> Dictionary:
-	if world.fishing.state in ["cast", "hooked"]:
+	if world.fishing.state != "idle":
 		return _failure("Finish or cancel fishing before handling resources.")
 	# Evaluate time, events and resources together before committing any state.
 	var candidate = get_script().new(world.seed)
@@ -335,15 +395,15 @@ func use_inventory(id: String, action: String) -> Dictionary:
 func cancel_fishing() -> Dictionary:
 	if not world.fishing.state in ["cast", "hooked", "rigged"]:
 		return _failure("No fishing encounter to cancel.")
-	world.fishing.state = "idle"
-	world.fishing.zone = ""
-	world.fishing.target_species = ""
-	world.fishing.bite_due_ms = 0
-	world.fishing.bait_item_id = ""
-	world.fishing.rod_item_id = ""
-	world.fishing.terminal_item_id = ""
-	world.fishing.last_outcome = "Fishing cancelled; no fish retained."
-	_log("observe", world.fishing.last_outcome)
+	var hooked: bool = world.fishing.state == "hooked"
+	var species: String = world.fishing.target_species
+	if hooked:
+		world.fishing.lost_count += 1
+		world.fishing.last_outcome = "%s lost: fight abandoned; hooked fish escaped." % species
+	else:
+		world.fishing.last_outcome = "Fishing cancelled; no fish retained."
+	Fishing.clear_active(world.fishing)
+	_log("fish_lost" if hooked else "observe", world.fishing.last_outcome)
 	return {"ok": true, "message": world.fishing.last_outcome}
 
 func random_u31() -> int:

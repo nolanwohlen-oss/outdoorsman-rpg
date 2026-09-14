@@ -26,6 +26,16 @@ func check(condition: bool, explanation: String) -> void:
 func same(a: Kernel, b: Kernel) -> bool:
 	return SaveStore.fingerprint(a.world.to_record()) == SaveStore.fingerprint(b.world.to_record())
 
+func _finish_test_fight(kernel: Kernel) -> bool:
+	for _round in 40:
+		if Fishing.landing_ready(kernel.world.fishing):
+			return true
+		var action: String = {"surge": "give_line", "pull": "pressure", "slack": "reel", "tired": "reel"}.get(kernel.world.fishing.fish_cue, "")
+		var result := kernel.fight_fishing(action)
+		if not result.ok or result.status != "continue":
+			return false
+	return Fishing.landing_ready(kernel.world.fishing)
+
 func _contracts() -> void:
 	var k := Kernel.new(42)
 	var record := k.world.to_record()
@@ -175,10 +185,12 @@ func _actions() -> void:
 	check(not k.hook_fishing().ok, "The bite remains unavailable one millisecond before its test window.")
 	k.advance_game_ms(1)
 	check(k.hook_fishing().ok and k.world.fishing.state == "hooked", "The deterministic bite window produces a hookable encounter.")
+	check(_finish_test_fight(k), "Correct visible-cue responses bring the hooked fish into landing range.")
 	var fish_food_before: int = Inventory.quantity(k.world.inventory, "fish_food_g")
 	var fish_species: String = k.world.fishing.target_species
 	var fish_before: int = int(k.world.ecology.populations[fish_species][k.world.player_zone])
-	check(k.land_fishing(true).ok and k.world.fishing.state == "idle" and Inventory.quantity(k.world.inventory, "fish_food_g") > fish_food_before and Inventory.quantity(k.world.inventory, "food_kcal") == 4000 and k.world.fishing.retained_count == 1 and k.world.fishing.last_catch_weight_g >= 250 and int(k.world.ecology.populations[fish_species][k.world.player_zone]) == fish_before - 1, "Landing and retaining a fish stores raw fish weight and removes one fish from the local population.")
+	var landing_start := k.world.game_time_ms
+	check(k.land_fishing(true).ok and k.world.game_time_ms == landing_start + Fishing.LANDING_ACTION_MS and k.world.fishing.state == "idle" and Inventory.quantity(k.world.inventory, "fish_food_g") > fish_food_before and Inventory.quantity(k.world.inventory, "food_kcal") == 4000 and k.world.fishing.retained_count == 1 and k.world.fishing.last_catch_weight_g >= 250 and int(k.world.ecology.populations[fish_species][k.world.player_zone]) == fish_before - 1, "Landing spends one game minute, stores a physical raw fish, and removes exactly one local fish.")
 	k.move_plan("elevated_camp")
 	k.schedule_marker(600000, "stop here", true)
 	k.schedule_marker(600000, "same instant")
@@ -586,7 +598,7 @@ func _environment_migrations() -> void:
 func _inventory_records() -> void:
 	_fish_uses()
 	var k := Kernel.new(42)
-	check(Inventory.total_weight_g(k.world.inventory) == 4525, "Ration mass is separate from calories and starter tackle has physical mass.")
+	check(Inventory.total_weight_g(k.world.inventory) == 4835, "Ration mass is separate from calories and the complete starter test rig has physical mass.")
 	var result := Inventory.add_fish(k.world.inventory, "mullet", 800, k.world.game_time_ms, k.world.player_zone)
 	check(result.ok, "An individual catch is stored.")
 	var id: String = result.id
@@ -596,7 +608,7 @@ func _inventory_records() -> void:
 	var before := k.world.to_record()
 	check(not k.transfer_inventory(id, "camp").ok and k.world.to_record() == before, "Remote storage transfer is rejected without mutation.")
 	k.move_plan("elevated_camp")
-	check(k.transfer_inventory(id, "camp").ok and Inventory.total_weight_g(k.world.inventory) == 4525, "Camp transfer removes carried mass.")
+	check(k.transfer_inventory(id, "camp").ok and Inventory.total_weight_g(k.world.inventory) == 4835, "Camp transfer removes carried mass.")
 	check(k.world.inventory.entries[id].species == fish.species and k.world.inventory.entries[id].caught_ms == fish.caught_ms, "Transfer preserves catch provenance and identity.")
 	var loaded := Kernel.new(99)
 	check(loaded.restore(JSON.parse_string(JSON.stringify(k.world.to_record()))).ok and same(k, loaded), "Physical items and storage survive JSON save and reload.")
@@ -626,7 +638,7 @@ func _inventory_records() -> void:
 	for index in 5:
 		var catch_result := Inventory.add_fish(k.world.inventory, "mullet", 10000, k.world.game_time_ms, k.world.player_zone)
 		check(catch_result.ok and k.transfer_inventory(catch_result.id, "camp").ok, "Separate catches can fill camp storage up to its limit.")
-	check(k.world.inventory.entries.size() == 11 and Inventory.total_weight_g(k.world.inventory, "camp") == 50000, "Each fish retains a distinct ID in a full cache.")
+	check(k.world.inventory.entries.size() == 13 and Inventory.total_weight_g(k.world.inventory, "camp") == 50000, "Each fish retains a distinct ID in a full cache.")
 	var extra := Inventory.add_fish(k.world.inventory, "mullet", 100, k.world.game_time_ms, k.world.player_zone)
 	before = k.world.to_record()
 	check(not k.transfer_inventory(extra.id, "camp").ok and k.world.to_record() == before, "Full cache rejects transfer atomically.")
@@ -685,12 +697,12 @@ func _fish_uses() -> void:
 	check(k.rig_fishing("bait", bait_id).ok and k.world.fishing.rig_mode == "bait" and k.world.fishing.bait_item_id == bait_id, "Bait rig records the explicitly selected carried cut-bait item.")
 	var cast_result := k.cast_fishing()
 	check(cast_result.ok and int(k.world.inventory.entries[bait_id].mass_g) == bait_mass - 50 and int(k.world.inventory.entries[first_bait_id].mass_g) == first_bait_mass, "Casting consumes 50 g from exactly the selected bait item.")
-	check(k.cancel_fishing().ok and k.world.fishing.bait_item_id == "" and k.world.fishing.rod_item_id == "" and k.world.fishing.terminal_item_id == "", "Bait encounter cancellation clears all active item links.")
+	check(k.cancel_fishing().ok and k.world.fishing.bait_item_id == "" and k.world.fishing.rod_item_id == "" and k.world.fishing.terminal_item_id == "" and k.world.fishing.reel_item_id == "" and k.world.fishing.line_item_id == "", "Bait encounter cancellation clears all active item links.")
 	var legacy := k.world.to_record()
 	legacy.schema_version = 9
 	legacy.inventory.version = 3
 	legacy.fishing.version = 1
-	for field in ["rig_mode", "bait_item_id", "rod_item_id", "terminal_item_id"]:
+	for field in ["rig_mode", "bait_item_id", "rod_item_id", "terminal_item_id", "reel_item_id", "line_item_id", "fish_stamina", "line_tension", "fish_distance_cm", "fight_round", "fish_cue", "lost_count"]:
 		legacy.fishing.erase(field)
 	for key in legacy.inventory.entries.keys():
 		if legacy.inventory.entries[key].kind in Inventory.TEST_EQUIPMENT:
@@ -708,21 +720,23 @@ func _fish_uses() -> void:
 
 func _fishing_equipment_gate() -> void:
 	var k := Kernel.new(42)
-	var counts := {"test_rod": 0, "test_spoon": 0, "test_hook": 0}
+	var counts := {"test_rod": 0, "test_spoon": 0, "test_hook": 0, "test_reel": 0, "test_line": 0}
 	for entry in k.world.inventory.entries.values():
 		if counts.has(entry.kind):
 			counts[entry.kind] += 1
-	check(counts == {"test_rod": 1, "test_spoon": 1, "test_hook": 1}, "A fresh world contains exactly one physical starter rod, spoon and hook.")
+	check(counts == {"test_rod": 1, "test_spoon": 1, "test_hook": 1, "test_reel": 1, "test_line": 1}, "A fresh world contains exactly one physical starter rod, spoon, hook, reel and line.")
 	var rod_id := Inventory.carried_id(k.world.inventory, "test_rod")
 	var spoon_id := Inventory.carried_id(k.world.inventory, "test_spoon")
 	var hook_id := Inventory.carried_id(k.world.inventory, "test_hook")
+	var reel_id := Inventory.carried_id(k.world.inventory, "test_reel")
+	var line_id := Inventory.carried_id(k.world.inventory, "test_line")
 	var before := k.world.to_record()
 	check(not k.rig_fishing("invalid").ok and k.world.to_record() == before, "Unsupported rig modes are rejected without mutation.")
 	check(k.move_plan("elevated_camp").ok and k.transfer_inventory(spoon_id, "camp").ok and k.move_plan("sandy_shore").ok, "Terminal tackle can be stored through normal camp transfers.")
 	before = k.world.to_record()
 	check(not k.rig_fishing("lure").ok and k.world.to_record() == before, "A spoon rig cannot be prepared when its compatible terminal tackle is not carried.")
 	check(k.move_plan("elevated_camp").ok and k.transfer_inventory(spoon_id, "pack").ok and k.move_plan("sandy_shore").ok, "Stored terminal tackle can be returned to the pack.")
-	check(k.rig_fishing("lure").ok and k.world.fishing.rod_item_id == rod_id and k.world.fishing.terminal_item_id == spoon_id, "A spoon rig stores the exact carried rod and compatible terminal-tackle IDs.")
+	check(k.rig_fishing("lure").ok and k.world.fishing.rod_item_id == rod_id and k.world.fishing.terminal_item_id == spoon_id and k.world.fishing.reel_item_id == reel_id and k.world.fishing.line_item_id == line_id, "A spoon rig stores the exact carried rod, reel, line and terminal-tackle IDs.")
 	var loaded := Kernel.new(99)
 	check(loaded.restore(JSON.parse_string(JSON.stringify(k.world.to_record()))).ok and same(k, loaded), "Active tackle links survive JSON save and reload exactly.")
 	var bad := k.world.to_record()
@@ -731,6 +745,9 @@ func _fishing_equipment_gate() -> void:
 	bad = k.world.to_record()
 	bad.inventory.entries[rod_id].container = "camp"
 	check(not World.validate(bad).is_empty(), "Cross-record validation rejects an active rig whose rod is not carried.")
+	bad = k.world.to_record()
+	bad.fishing.reel_item_id = line_id
+	check(not World.validate(bad).is_empty(), "Cross-record validation rejects a line item linked as the active reel.")
 	bad = k.world.to_record()
 	var duplicate_id := "item_%d" % int(bad.inventory.next_id)
 	bad.inventory.next_id += 1
@@ -743,7 +760,7 @@ func _fishing_equipment_gate() -> void:
 	legacy10.schema_version = 10
 	legacy10.inventory.version = 4
 	legacy10.fishing.version = 1
-	for field in ["rig_mode", "bait_item_id", "rod_item_id", "terminal_item_id"]:
+	for field in ["rig_mode", "bait_item_id", "rod_item_id", "terminal_item_id", "reel_item_id", "line_item_id", "fish_stamina", "line_tension", "fish_distance_cm", "fight_round", "fish_cue", "lost_count"]:
 		legacy10.fishing.erase(field)
 	for id in legacy10.inventory.entries.keys():
 		if legacy10.inventory.entries[id].kind in Inventory.TEST_EQUIPMENT:
@@ -767,16 +784,137 @@ func _fishing_equipment_gate() -> void:
 	legacy11.fishing.version = 2
 	legacy11.fishing.erase("rod_item_id")
 	legacy11.fishing.erase("terminal_item_id")
+	for field in ["reel_item_id", "line_item_id", "fish_stamina", "line_tension", "fish_distance_cm", "fight_round", "fish_cue", "lost_count"]:
+		legacy11.fishing.erase(field)
 	for id in legacy11.inventory.entries.keys():
-		if legacy11.inventory.entries[id].kind == "test_hook":
+		if legacy11.inventory.entries[id].kind in ["test_hook", "test_reel", "test_line"]:
 			legacy11.inventory.entries.erase(id)
 	var legacy11_snapshot := legacy11.duplicate(true)
 	var migrated11 := World.migrate_record(legacy11)
 	check(migrated11.ok and legacy11 == legacy11_snapshot and migrated11.record.fishing.state == "rigged" and migrated11.record.fishing.rig_mode == "bait" and migrated11.record.fishing.bait_item_id == bait_id and migrated11.record.inventory.entries[migrated11.record.fishing.terminal_item_id].kind == "test_hook" and World.validate(migrated11.record).is_empty(), "Schema 11 migration preserves an active bait selection and links it to newly added compatible tackle.")
 
+func _hooked_fixture(seed: int = 42) -> Kernel:
+	var kernel := Kernel.new(seed)
+	kernel.rig_fishing()
+	kernel.cast_fishing()
+	kernel.advance_game_ms(Fishing.BITE_DELAY_MS)
+	kernel.hook_fishing()
+	return kernel
+
+func _downgrade_to_schema_12(record: Dictionary) -> Dictionary:
+	var legacy := record.duplicate(true)
+	legacy.schema_version = 12
+	legacy.inventory.version = 6
+	for id in legacy.inventory.entries.keys():
+		if legacy.inventory.entries[id].kind in ["test_reel", "test_line"]:
+			legacy.inventory.entries.erase(id)
+	legacy.fishing.version = 3
+	for field in ["reel_item_id", "line_item_id", "fish_stamina", "line_tension", "fish_distance_cm", "fight_round", "fish_cue", "lost_count"]:
+		legacy.fishing.erase(field)
+	return legacy
+
+func _phase_2m_fight_gate() -> void:
+	var k := _hooked_fixture(42)
+	var f: Dictionary = k.world.fishing
+	check(f.state == "hooked" and f.fish_stamina > 0 and f.line_tension > Fishing.SLACK_LIMIT and f.line_tension < Fishing.OVERLOAD_LIMIT and f.fish_distance_cm > 0 and f.fish_cue in Fishing.FIGHT_CUES and World.validate(k.world.to_record()).is_empty(), "Setting the hook creates a bounded, valid fight state with a visible cue.")
+	var loaded := Kernel.new(99)
+	check(loaded.restore(JSON.parse_string(JSON.stringify(k.world.to_record()))).ok and same(k, loaded), "Fish stamina, tension, distance, cue, round and exact tackle links survive save/reload.")
+	var bad_location := k.world.to_record()
+	bad_location.player.zone_id = "elevated_camp"
+	check(not World.validate(bad_location).is_empty(), "A current active encounter cannot exist in a different zone from the player.")
+	var before := k.world.to_record()
+	check(not k.land_fishing(true).ok and k.world.to_record() == before, "Landing before both stamina and distance thresholds is rejected without time or mutation.")
+	var first_cue: String = k.world.fishing.fish_cue
+	var correct_action: String = {"surge": "give_line", "pull": "pressure", "slack": "reel", "tired": "reel"}[first_cue]
+	var start := k.world.game_time_ms
+	var random_before := k.world.rng_state
+	var first_round := k.fight_fishing(correct_action)
+	check(first_round.ok and first_round.status == "continue" and k.world.game_time_ms == start + Fishing.FIGHT_ACTION_MS and k.world.fishing.fight_round == 1, "One fight choice advances exactly 30 game seconds and one persistent round.")
+	check(k.world.rng_state == random_before, "Fight resolution uses explicit state and the visible cue without a hidden universal random roll.")
+	check(_finish_test_fight(k) and World.validate(k.world.to_record()).is_empty(), "Following visible cues reaches landing readiness in a bounded valid sequence.")
+	before = k.world.to_record()
+	check(not k.fight_fishing("reel").ok and k.world.to_record() == before, "Further fight inputs are blocked once the fish is ready to land.")
+
+	var overload := _hooked_fixture(42)
+	var overload_species: String = overload.world.fishing.target_species
+	var overload_population := int(overload.world.ecology.populations[overload_species][overload.world.player_zone])
+	overload.world.fishing.fish_cue = "surge"
+	overload.world.fishing.line_tension = 500
+	start = overload.world.game_time_ms
+	var overload_result := overload.fight_fishing("pressure")
+	check(overload_result.ok and overload_result.status == "overload" and overload.world.game_time_ms == start + Fishing.FIGHT_ACTION_MS and overload.world.fishing.state == "idle" and overload.world.fishing.lost_count == 1 and "excessive line tension" in overload.world.fishing.last_outcome, "Pressuring into a surge causes a timed, explicit overload loss.")
+	check(int(overload.world.ecology.populations[overload_species][overload.world.player_zone]) == overload_population, "An overload loss leaves the hooked fish in the ecology population.")
+	check(overload.rig_fishing().ok and overload.cancel_fishing().ok, "A causal fight loss remains recoverable through a new rig.")
+
+	var slack := _hooked_fixture(43)
+	var slack_species: String = slack.world.fishing.target_species
+	var slack_population := int(slack.world.ecology.populations[slack_species][slack.world.player_zone])
+	slack.world.fishing.fish_cue = "slack"
+	slack.world.fishing.line_tension = 500
+	var slack_result := slack.fight_fishing("give_line")
+	check(slack_result.ok and slack_result.status == "slack" and slack.world.fishing.state == "idle" and slack.world.fishing.lost_count == 1 and int(slack.world.ecology.populations[slack_species][slack.world.player_zone]) == slack_population, "Giving line to a slack cue pulls the hook without removing a fish from ecology.")
+
+	var cover := _hooked_fixture(44)
+	var cover_species: String = cover.world.fishing.target_species
+	var cover_population := int(cover.world.ecology.populations[cover_species][cover.world.player_zone])
+	cover.world.fishing.fish_cue = "pull"
+	cover.world.fishing.fish_distance_cm = 3200
+	var cover_result := cover.fight_fishing("give_line")
+	check(cover_result.ok and cover_result.status == "cover" and cover.world.fishing.state == "idle" and cover.world.fishing.lost_count == 1 and int(cover.world.ecology.populations[cover_species][cover.world.player_zone]) == cover_population, "Giving too much line lets a pulling fish reach cover without deleting it from ecology.")
+
+	var cancelled := _hooked_fixture(45)
+	var cancelled_species: String = cancelled.world.fishing.target_species
+	var cancelled_population := int(cancelled.world.ecology.populations[cancelled_species][cancelled.world.player_zone])
+	start = cancelled.world.game_time_ms
+	check(cancelled.cancel_fishing().ok and cancelled.world.game_time_ms == start and cancelled.world.fishing.lost_count == 1 and int(cancelled.world.ecology.populations[cancelled_species][cancelled.world.player_zone]) == cancelled_population and "abandoned" in cancelled.world.fishing.last_outcome, "Abandoning a hooked fight records a loss without inventing time or removing the fish.")
+	var cast_cancel := Kernel.new(45)
+	cast_cancel.rig_fishing()
+	cast_cancel.cast_fishing()
+	check(cast_cancel.cancel_fishing().ok and cast_cancel.world.fishing.lost_count == 0, "Cancelling an unhooked cast does not count as a lost fish.")
+
+	var locked := Kernel.new(46)
+	locked.rig_fishing()
+	before = locked.world.to_record()
+	check(not locked.move_plan("elevated_camp").ok and locked.world.to_record() == before, "A prepared physical rig blocks travel before it can strand linked equipment.")
+	var linked_reel: String = locked.world.fishing.reel_item_id
+	check(not locked.transfer_inventory(linked_reel, "camp").ok and locked.world.to_record() == before, "An active rig blocks inventory transfer without mutation.")
+	check(locked.cancel_fishing().ok and locked.move_plan("elevated_camp").ok and locked.transfer_inventory(linked_reel, "camp").ok and locked.move_plan("sandy_shore").ok, "Cancelling unlocks travel and normal storage transfer.")
+	before = locked.world.to_record()
+	check(not locked.rig_fishing().ok and locked.world.to_record() == before, "A rig cannot be assembled while its exact reel is stored at camp.")
+
+	var legacy_hooked := _downgrade_to_schema_12(_hooked_fixture(47).world.to_record())
+	var legacy_snapshot := legacy_hooked.duplicate(true)
+	var old_target: String = legacy_hooked.fishing.target_species
+	var old_weight := int(legacy_hooked.fishing.last_catch_weight_g)
+	var migrated := World.migrate_record(legacy_hooked)
+	check(migrated.ok and legacy_hooked == legacy_snapshot and migrated.record.fishing.state == "hooked" and migrated.record.fishing.target_species == old_target and int(migrated.record.fishing.last_catch_weight_g) == old_weight and migrated.record.fishing.fish_stamina > 0 and migrated.record.fishing.reel_item_id != "" and migrated.record.fishing.line_item_id != "" and World.validate(migrated.record).is_empty(), "Schema 12 hooked saves preserve the encounter and initialize deterministic fight state without mutating input.")
+	var misplaced_legacy := _downgrade_to_schema_12(Kernel.new(47).world.to_record())
+	misplaced_legacy.fishing.state = "rigged"
+	misplaced_legacy.fishing.zone = "sandy_shore"
+	misplaced_legacy.fishing.rod_item_id = Inventory.carried_id(misplaced_legacy.inventory, "test_rod")
+	misplaced_legacy.fishing.terminal_item_id = Inventory.carried_id(misplaced_legacy.inventory, "test_spoon")
+	misplaced_legacy.player.zone_id = "elevated_camp"
+	var misplaced_snapshot := misplaced_legacy.duplicate(true)
+	var misplaced_migration := World.migrate_record(misplaced_legacy)
+	check(misplaced_migration.ok and misplaced_legacy == misplaced_snapshot and misplaced_migration.record.fishing.state == "idle" and misplaced_migration.record.fishing.lost_count == 0 and "player location" in misplaced_migration.message and World.validate(misplaced_migration.record).is_empty(), "A schema 12 prepared rig left in another zone is safely closed during migration without inventing a lost fish.")
+
+	var full_legacy := _downgrade_to_schema_12(_hooked_fixture(48).world.to_record())
+	var remaining := Inventory.CAPACITY_G - Inventory.total_weight_g(full_legacy.inventory)
+	var filler := Inventory.add_fish(full_legacy.inventory, "mullet", remaining, int(full_legacy.clock.game_time_ms), full_legacy.player.zone_id)
+	var full_snapshot := full_legacy.duplicate(true)
+	var full_population: Dictionary = full_legacy.ecology.duplicate(true)
+	var full_migration := World.migrate_record(full_legacy)
+	check(filler.ok and full_migration.ok and full_legacy == full_snapshot and full_migration.record.fishing.state == "idle" and full_migration.record.fishing.lost_count == 1 and full_migration.record.ecology == full_population and "safely closed" in full_migration.message and World.validate(full_migration.record).is_empty(), "A full schema 12 pack migrates safely: the uncarryable expanded rig closes only the active encounter and preserves inventory and ecology.")
+
+	for field in ["fish_stamina", "line_tension", "fish_distance_cm", "fight_round", "lost_count"]:
+		var bad := _hooked_fixture(49).world.to_record()
+		bad.fishing[field] = true
+		check(not World.validate(bad).is_empty(), "New fight numeric fields reject boolean corruption.")
+
 func _audit_regressions() -> void:
 	_inventory_records()
 	_fishing_equipment_gate()
+	_phase_2m_fight_gate()
 	var k := Kernel.new(42)
 	k.advance_game_ms(World.DAY_MS)
 	k.world.condition.health = 654
@@ -797,7 +935,7 @@ func _audit_regressions() -> void:
 			old.erase("fishing")
 		else:
 			old.fishing.version = 1
-			for field in ["rig_mode", "bait_item_id", "rod_item_id", "terminal_item_id"]:
+			for field in ["rig_mode", "bait_item_id", "rod_item_id", "terminal_item_id", "reel_item_id", "line_item_id", "fish_stamina", "line_tension", "fish_distance_cm", "fight_round", "fish_cue", "lost_count"]:
 				old.fishing.erase(field)
 		if version == 6:
 			for key in ["last_catch_weight_g", "retained_count", "released_count"]:
@@ -821,9 +959,11 @@ func _audit_regressions() -> void:
 	check(not k.rig_fishing().ok and k.world.to_record() == before, "Re-rigging cannot overwrite an active encounter.")
 	k.advance_game_ms(Fishing.BITE_DELAY_MS)
 	k.hook_fishing()
-	for entry in k.world.inventory.entries.values():
-		if entry.kind not in ["test_rod", "test_spoon"]:
-			entry.container = "camp"
+	check(_finish_test_fight(k), "Capacity test first reaches a legitimate landing-ready state.")
+	var active_ids := [k.world.fishing.rod_item_id, k.world.fishing.terminal_item_id, k.world.fishing.reel_item_id, k.world.fishing.line_item_id]
+	for id in k.world.inventory.entries:
+		if id not in active_ids:
+			k.world.inventory.entries[id].container = "camp"
 	var full_catch := Inventory.add_fish(k.world.inventory, "mullet", Inventory.CAPACITY_G - Inventory.total_weight_g(k.world.inventory), k.world.game_time_ms, k.world.player_zone)
 	check(full_catch.ok, "A full-size catch can occupy the available pack capacity.")
 	before = k.world.to_record()

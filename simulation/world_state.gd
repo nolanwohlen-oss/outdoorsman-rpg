@@ -1,5 +1,5 @@
 extends RefCounted
-## Authoritative Phase 2C record. It owns data, never a scene or a system clock.
+## Authoritative versioned world record. It owns data, never a scene or system clock.
 
 const Map = preload("res://simulation/testbed_map.gd")
 const CoastalEnvironment = preload("res://simulation/environment.gd")
@@ -7,7 +7,7 @@ const Ecology = preload("res://simulation/ecology.gd")
 const Condition = preload("res://simulation/condition.gd")
 const Inventory = preload("res://simulation/inventory.gd")
 const Fishing = preload("res://simulation/fishing.gd")
-const SCHEMA_VERSION := 12
+const SCHEMA_VERSION := 13
 const MAP_ID := "generic_coastal_testbed_v1"
 const DAY_MS := 86400000
 const START_MS := 21600000 # Day 1, 06:00. Fixed testbed sunrise/sunset: 06:00/18:00.
@@ -17,7 +17,7 @@ const MAX_HISTORY := 200
 const MAX_PENDING := 64
 const ZONES := Map.ZONE_IDS
 const CALENDAR := {"sunrise": 21600000, "sunset": 64800000, "midnight": 0}
-const LOG_KINDS := ["world_started", "observe", "move", "wait_started", "wait_finished", "wait_stopped", "scheduled", "sunrise", "sunset", "midnight", "marker", "wait_interrupt", "random_draw", "fishing_rigged", "fishing_cast", "fish_hooked", "fish_landed"]
+const LOG_KINDS := ["world_started", "observe", "move", "wait_started", "wait_finished", "wait_stopped", "scheduled", "sunrise", "sunset", "midnight", "marker", "wait_interrupt", "random_draw", "fishing_rigged", "fishing_cast", "fish_hooked", "fish_fight", "fish_lost", "fish_landed"]
 
 var seed: int = 13092026
 var game_time_ms: int = START_MS
@@ -126,22 +126,27 @@ static func _validate(record: Variant, version: int) -> PackedStringArray:
 		errors.append_array(Ecology.validate(record.ecology, int(record.seed), int(record.clock.game_time_ms)))
 	if version >= 5:
 		errors.append_array(Condition.validate(record.condition, int(record.clock.game_time_ms)))
-	if version >= 12:
+	if version >= 13:
 		errors.append_array(Inventory.validate(record.inventory, int(record.clock.game_time_ms)))
+	elif version == 12:
+		errors.append_array(Inventory.validate(record.inventory, int(record.clock.game_time_ms), false, false, false, true))
 	elif version == 11:
 		errors.append_array(Inventory.validate(record.inventory, int(record.clock.game_time_ms), false, false, true))
 	elif version == 10:
-			errors.append_array(Inventory.validate(record.inventory, int(record.clock.game_time_ms), false, true))
+		errors.append_array(Inventory.validate(record.inventory, int(record.clock.game_time_ms), false, true))
 	elif version == 9:
-			errors.append_array(Inventory.validate(record.inventory, int(record.clock.game_time_ms), true))
+		errors.append_array(Inventory.validate(record.inventory, int(record.clock.game_time_ms), true))
 	elif version == 8:
-			errors.append_array(Inventory.validate_v2(record.inventory))
+		errors.append_array(Inventory.validate_v2(record.inventory))
 	elif version >= 5:
 		errors.append_array(Inventory.validate_legacy(record.inventory))
 	if version >= 6:
-		errors.append_array(Fishing.validate(record.fishing, int(record.clock.game_time_ms), version == 6, version in [7, 8, 9, 10], version == 11))
-	if version >= 12 and errors.is_empty():
-		errors.append_array(Fishing.validate_inventory_links(record.fishing, record.inventory))
+		errors.append_array(Fishing.validate(record.fishing, int(record.clock.game_time_ms), version == 6, version in [7, 8, 9, 10], version == 11, version == 12))
+	if version >= 13 and errors.is_empty():
+		if record.fishing.state != "idle" and record.fishing.zone != record.player.zone_id:
+			errors.append("Active fishing zone does not match player location.")
+		else:
+			errors.append_array(Fishing.validate_inventory_links(record.fishing, record.inventory))
 	if record.scheduled_events.size() > MAX_PENDING or record.history.size() > MAX_HISTORY or record.history.is_empty():
 		errors.append("Invalid event record count.")
 	if int(record.events_processed) + record.scheduled_events.size() != int(record.next_event_id) - 1:
@@ -202,13 +207,15 @@ static func migrate_record(record: Variant) -> Dictionary:
 		if not current_errors.is_empty():
 			return {"ok": false, "message": " ".join(current_errors), "code": "invalid"}
 		return {"ok": true, "record": record.duplicate(true), "migrated": false}
-	if is_integer(schema, 1, 11):
+	if is_integer(schema, 1, 12):
 		# Validate the old contract BEFORE adding fields; malformed/unknown fields
 		# must not be silently repaired or discarded by migration.
 		var legacy_errors := _validate(record, int(schema))
 		if not legacy_errors.is_empty():
 			return {"ok": false, "message": "Cannot migrate legacy save: " + " ".join(legacy_errors), "code": "invalid"}
 		var migrated: Dictionary = record.duplicate(true)
+		var closed_active_fishing := false
+		var closed_fishing_reason := ""
 		migrated.schema_version = SCHEMA_VERSION
 		if int(schema) == 1:
 			migrated.map_version = Map.MAP_VERSION
@@ -236,6 +243,10 @@ static func migrate_record(record: Variant) -> Dictionary:
 				migrated.fishing.rig_mode = "lure"
 				migrated.fishing.bait_item_id = ""
 			migrated.fishing.version = Fishing.VERSION
+			migrated.fishing.lost_count = 0
+			migrated.fishing.reel_item_id = ""
+			migrated.fishing.line_item_id = ""
+			Fishing.clear_fight(migrated.fishing)
 			if migrated.fishing.state == "idle":
 				migrated.fishing.zone = ""
 				migrated.fishing.target_species = ""
@@ -246,10 +257,31 @@ static func migrate_record(record: Variant) -> Dictionary:
 			else:
 				migrated.fishing.rod_item_id = Inventory.carried_id(migrated.inventory, "test_rod")
 				migrated.fishing.terminal_item_id = Inventory.carried_id(migrated.inventory, "test_spoon" if migrated.fishing.rig_mode == "lure" else "test_hook")
+				migrated.fishing.reel_item_id = Inventory.carried_id(migrated.inventory, "test_reel")
+				migrated.fishing.line_item_id = Inventory.carried_id(migrated.inventory, "test_line")
+				var required_links := [migrated.fishing.rod_item_id, migrated.fishing.terminal_item_id, migrated.fishing.reel_item_id, migrated.fishing.line_item_id]
+				if required_links.has(""):
+					closed_active_fishing = true
+					closed_fishing_reason = "the expanded test rig would not fit in the pack"
+				elif migrated.fishing.zone != migrated.player.zone_id:
+					closed_active_fishing = true
+					closed_fishing_reason = "its saved encounter zone did not match the player location"
+				if closed_active_fishing:
+					if migrated.fishing.state == "hooked":
+						migrated.fishing.lost_count += 1
+					migrated.fishing.last_outcome = "Active fishing closed during upgrade because %s." % closed_fishing_reason
+					Fishing.clear_active(migrated.fishing)
+				elif migrated.fishing.state == "hooked":
+					if int(migrated.fishing.last_catch_weight_g) <= 0:
+						migrated.fishing.last_catch_weight_g = 250
+					Fishing.start_fight(migrated.fishing, migrated.environment.water_by_zone[migrated.fishing.zone])
 		var errors := validate(migrated)
 		if not errors.is_empty():
 			return {"ok": false, "message": "Cannot migrate legacy save: " + " ".join(errors), "code": "invalid"}
-		return {"ok": true, "record": migrated, "migrated": true, "message": "Older save upgraded; new layers initialized at saved game time. Clock paused. No offline time added."}
+		var message := "Older save upgraded; new layers initialized at saved game time. Clock paused. No offline time added."
+		if closed_active_fishing:
+			message += " The active fishing encounter was safely closed because %s." % closed_fishing_reason
+		return {"ok": true, "record": migrated, "migrated": true, "message": message}
 	return {"ok": false, "message": "Unsupported world schema; existing files were kept.", "code": "unsupported"}
 
 static func from_record(record: Dictionary) -> RefCounted:
