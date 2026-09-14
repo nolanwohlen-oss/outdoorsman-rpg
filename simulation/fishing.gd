@@ -126,6 +126,9 @@ static func validate_inventory_links(record: Dictionary, inventory: Dictionary) 
 	var expected_terminal := "test_spoon" if record.rig_mode == "lure" else "test_hook"
 	if not terminal is Dictionary or terminal.kind != expected_terminal or terminal.container != "pack":
 		return PackedStringArray(["Rig terminal tackle is incompatible or not carried."])
+	for component in [rod, reel, line, terminal]:
+		if int(component.condition) == 0:
+			return PackedStringArray(["Active rig contains broken tackle."])
 	if record.rig_mode == "bait" and record.state == "rigged":
 		var bait: Variant = inventory.entries.get(record.bait_item_id)
 		if not bait is Dictionary or bait.kind != "cut_bait" or bait.container != "pack" or int(bait.mass_g) < 50:

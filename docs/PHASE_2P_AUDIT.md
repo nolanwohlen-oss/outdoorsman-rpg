@@ -1,35 +1,4 @@
-from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def replace_once(path: str, old: str, new: str) -> None:
-    p = ROOT / path
-    text = p.read_text()
-    if text.count(old) != 1:
-        raise SystemExit(f"Final audit anchor count for {path}: {text.count(old)}; expected 1")
-    p.write_text(text.replace(old, new, 1))
-
-
-replace_once(
-    "simulation/fishing.gd",
-    '''\tif not terminal is Dictionary or terminal.kind != expected_terminal or terminal.container != "pack":\n\t\treturn PackedStringArray(["Rig terminal tackle is incompatible or not carried."])\n\tif record.rig_mode == "bait" and record.state == "rigged":\n''',
-    '''\tif not terminal is Dictionary or terminal.kind != expected_terminal or terminal.container != "pack":\n\t\treturn PackedStringArray(["Rig terminal tackle is incompatible or not carried."])\n\tfor component in [rod, reel, line, terminal]:\n\t\tif int(component.condition) == 0:\n\t\t\treturn PackedStringArray(["Active rig contains broken tackle."])\n\tif record.rig_mode == "bait" and record.state == "rigged":\n''',
-)
-
-replace_once(
-    "tests/phase_2p.gd",
-    '''\tvar base_record := k.world.to_record()\n\tbase_record.fishing.fish_cue = "pull"\n\tbase_record.fishing.line_tension = 500\n\tvar loose := Kernel.new(1)\n''',
-    '''\tvar base_record := k.world.to_record()\n\tbase_record.fishing.fish_cue = "pull"\n\tbase_record.fishing.line_tension = 500\n\tvar impossible_active := base_record.duplicate(true)\n\tvar impossible_line: String = impossible_active.fishing.line_item_id\n\timpossible_active.inventory.entries[impossible_line].condition = 0\n\tif World.validate(impossible_active).is_empty():\n\t\tfail("2P: current save validation accepted an active encounter on broken tackle")\n\t\treturn\n\tvar loose := Kernel.new(1)\n''',
-)
-
-replace_once(
-    "docs/PHASE_2P.md",
-    'the dedicated test covers save/reload, broken-rig rejection, replacement identity and the weakest-link case; and CI no longer depends on an unavailable `rg` binary for its source-corruption guard.',
-    'current save validation rejects active encounters linked to already-broken tackle; the dedicated test covers save/reload, broken-rig rejection, replacement identity, corrupted active-state rejection and the weakest-link case; and CI no longer depends on an unavailable `rg` binary for its source-corruption guard.',
-)
-
-(ROOT / "docs/PHASE_2P_AUDIT.md").write_text('''# Phase 2P full audit — 2026-09-14
+# Phase 2P full audit — 2026-09-14
 
 ## Scope
 
@@ -59,6 +28,3 @@ The deterministic wear rates, load limits and drag offsets remain systems-lab co
 ## Remaining external gate
 
 Automated validation cannot substitute for the Phase 2P physical Android checklist. Phase 2Q must not depend on 2P until the corrected v0.17.0 build passes that phone test.
-''')
-
-print("Final Phase 2P validation audit applied.")

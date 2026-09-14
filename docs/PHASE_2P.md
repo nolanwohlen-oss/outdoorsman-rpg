@@ -18,7 +18,7 @@ Development v0.17.0. Phase 2P deepens the existing fishing fixture without chang
 
 ## Full-audit corrections
 
-The post-merge audit tightened the gate without changing the Phase 2P save shape or test coefficients. Rejected rig preparation is now atomic even for legacy `-1` tackle condition; the lower of the line/rod envelope and terminal-tackle limit owns an overload; failed fight events record the chosen drag and all four final condition values before the encounter is cleared; the dedicated test covers save/reload, broken-rig rejection, replacement identity and the weakest-link case; and CI no longer depends on an unavailable `rg` binary for its source-corruption guard. Temporary branch-only source-transformer workflows/scripts were also removed from the canonical repository.
+The post-merge audit tightened the gate without changing the Phase 2P save shape or test coefficients. Rejected rig preparation is now atomic even for legacy `-1` tackle condition; the lower of the line/rod envelope and terminal-tackle limit owns an overload; failed fight events record the chosen drag and all four final condition values before the encounter is cleared; current save validation rejects active encounters linked to already-broken tackle; the dedicated test covers save/reload, broken-rig rejection, replacement identity, corrupted active-state rejection and the weakest-link case; and CI no longer depends on an unavailable `rg` binary for its source-corruption guard. Temporary branch-only source-transformer workflows/scripts were also removed from the canonical repository.
 
 ## Android phone gate
 

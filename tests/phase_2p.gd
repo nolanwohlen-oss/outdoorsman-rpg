@@ -36,6 +36,12 @@ func _init() -> void:
 	var base_record := k.world.to_record()
 	base_record.fishing.fish_cue = "pull"
 	base_record.fishing.line_tension = 500
+	var impossible_active := base_record.duplicate(true)
+	var impossible_line: String = impossible_active.fishing.line_item_id
+	impossible_active.inventory.entries[impossible_line].condition = 0
+	if World.validate(impossible_active).is_empty():
+		fail("2P: current save validation accepted an active encounter on broken tackle")
+		return
 	var loose := Kernel.new(1)
 	var tight := Kernel.new(1)
 	if not loose.restore(base_record).ok or not tight.restore(base_record).ok:
