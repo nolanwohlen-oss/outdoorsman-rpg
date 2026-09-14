@@ -2,7 +2,7 @@
 
 An Android outdoor survival RPG, beginning with a small laboratory for its simulation systems.
 
-**Current milestone: Phase 2J — explicit fish uses (schema 10, development v0.11.0).** Select fish in Layers to clean, prepare cut bait, cook using firewood, or eat a cooked portion. Actions spend game time and preserve catch provenance; rejected actions do not change state. Fish never automatically become food. See [Phase 2J scope and phone test](docs/PHASE_2J.md).
+**Current milestone: Phase 2K — equipment-driven fishing (schema 11, development v0.12.0).** The starter kit includes a test rod and spoon. Cut bait can be selected as a rig, is consumed on cast, and remains separate from food. Lure and bait rigs persist through saves and encounter cancellation. See [Phase 2K scope and phone test](docs/PHASE_2K.md).
 
 The Phase 2A delivery spans the minimum contracts, clock and early persistence from the longer roadmap. Phase 2B adds map/habitat access; Phase 2C adds the first environmental integration test, not the complete weather framework. See [Phase 2A](docs/PHASE_2A.md), [Phase 2B](docs/PHASE_2B.md) and [Phase 2C contracts and limits](docs/PHASE_2C.md).
 

@@ -208,15 +208,22 @@ func observe() -> Dictionary:
 	_log("observe", "At %s; %s; front %s; tide %s (%d cm); wind %.1f m/s; runoff %d/1000. CoastalEnvironment tick: %s." % [world.player_zone, light_state(), env.weather.front_state, env.tide.phase, env.tide.height_cm, float(env.weather.wind_deci_mps) / 10.0, env.runoff_permille, time_text(int(env.updated_at_ms))])
 	return {"ok": true, "message": "Observation added to the log."}
 
-func rig_fishing() -> Dictionary:
+func rig_fishing(use_bait: bool = false) -> Dictionary:
 	if world.fishing.state in ["cast", "hooked"]:
 		return _failure("Finish or cancel the current fishing encounter first.")
 	if world.player_zone == "elevated_camp" or not world.environment.water_by_zone[world.player_zone].water_present:
 		return _failure("Fishing requires a water zone.")
+	var bait_id := ""
+	if use_bait:
+		bait_id = Inventory.carried_id(world.inventory, "cut_bait")
+		if bait_id.is_empty():
+			return _failure("Carry prepared cut bait before choosing a bait rig.")
 	world.fishing.state = "rigged"
 	world.fishing.zone = world.player_zone
 	world.fishing.target_species = ""
 	world.fishing.bite_due_ms = 0
+	world.fishing.rig_mode = "bait" if use_bait else "lure"
+	world.fishing.bait_item_id = bait_id
 	_log("fishing_rigged", "Rig prepared at %s." % world.player_zone)
 	return {"ok": true, "message": "Rig prepared."}
 
@@ -229,6 +236,12 @@ func cast_fishing() -> Dictionary:
 			choices.append(species)
 	if choices.is_empty():
 		return _failure("No test population is present here.")
+	if world.fishing.rig_mode == "bait":
+		if not world.inventory.entries.has(world.fishing.bait_item_id) or world.inventory.entries[world.fishing.bait_item_id].container != "pack":
+			return _failure("Selected bait is no longer in the pack.")
+		world.inventory.entries[world.fishing.bait_item_id].mass_g = maxi(0, int(world.inventory.entries[world.fishing.bait_item_id].mass_g) - 50)
+		if world.inventory.entries[world.fishing.bait_item_id].mass_g == 0:
+			world.inventory.entries.erase(world.fishing.bait_item_id)
 	world.fishing.state = "cast"
 	world.fishing.target_species = choices[posmod(world.seed + world.game_time_ms, choices.size())]
 	world.fishing.bite_due_ms = world.game_time_ms + 15 * MINUTE_MS

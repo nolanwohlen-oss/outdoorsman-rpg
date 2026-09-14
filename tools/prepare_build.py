@@ -10,12 +10,12 @@ number = int(os.environ.get("GITHUB_RUN_NUMBER", "1"))
 commit = os.environ.get("GITHUB_SHA", "local")[:8]
 metadata = root / "config" / "build_info.json"
 metadata.parent.mkdir(exist_ok=True)
-metadata.write_text(json.dumps({"number": number, "commit": commit, "version": "0.11.0", "phase": "2J"}) + "\n")
+metadata.write_text(json.dumps({"number": number, "commit": commit, "version": "0.12.0", "phase": "2K"}) + "\n")
 
 preset = root / "export_presets.cfg"
 text = preset.read_text()
 text = re.sub(r"^version/code=\d+$", f"version/code={number}", text, flags=re.MULTILINE)
-text = re.sub(r'^version/name="[^"]*"$', f'version/name="0.11.0-dev.{number}"', text, flags=re.MULTILINE)
+text = re.sub(r'^version/name="[^"]*"$', f'version/name="0.12.0-dev.{number}"', text, flags=re.MULTILINE)
 preset.write_text(text)
 
 android_sdk = os.environ.get("ANDROID_HOME") or os.environ.get("ANDROID_SDK_ROOT")
@@ -46,4 +46,4 @@ for key, value in values.items():
     else:
         settings += "\n" + entry + "\n"
 settings_file.write_text(settings)
-print(f"Prepared Phase 2J build {number} ({commit})")
+print(f"Prepared Phase 2K build {number} ({commit})")

@@ -7,7 +7,7 @@ const Ecology = preload("res://simulation/ecology.gd")
 const Condition = preload("res://simulation/condition.gd")
 const Inventory = preload("res://simulation/inventory.gd")
 const Fishing = preload("res://simulation/fishing.gd")
-const SCHEMA_VERSION := 10
+const SCHEMA_VERSION := 11
 const MAP_ID := "generic_coastal_testbed_v1"
 const DAY_MS := 86400000
 const START_MS := 21600000 # Day 1, 06:00. Fixed testbed sunrise/sunset: 06:00/18:00.
@@ -126,16 +126,18 @@ static func _validate(record: Variant, version: int) -> PackedStringArray:
 		errors.append_array(Ecology.validate(record.ecology, int(record.seed), int(record.clock.game_time_ms)))
 	if version >= 5:
 		errors.append_array(Condition.validate(record.condition, int(record.clock.game_time_ms)))
-		if version >= 10:
+	if version >= 11:
 			errors.append_array(Inventory.validate(record.inventory, int(record.clock.game_time_ms)))
-		elif version == 9:
+	elif version == 10:
+			errors.append_array(Inventory.validate(record.inventory, int(record.clock.game_time_ms), false, true))
+	elif version == 9:
 			errors.append_array(Inventory.validate(record.inventory, int(record.clock.game_time_ms), true))
-		elif version == 8:
+	elif version == 8:
 			errors.append_array(Inventory.validate_v2(record.inventory))
-		else:
-			errors.append_array(Inventory.validate_legacy(record.inventory))
+	elif version >= 5:
+		errors.append_array(Inventory.validate_legacy(record.inventory))
 	if version >= 6:
-		errors.append_array(Fishing.validate(record.fishing, int(record.clock.game_time_ms), version == 6))
+			errors.append_array(Fishing.validate(record.fishing, int(record.clock.game_time_ms), version == 6, version < 11))
 	if record.scheduled_events.size() > MAX_PENDING or record.history.size() > MAX_HISTORY or record.history.is_empty():
 		errors.append("Invalid event record count.")
 	if int(record.events_processed) + record.scheduled_events.size() != int(record.next_event_id) - 1:
@@ -196,7 +198,7 @@ static func migrate_record(record: Variant) -> Dictionary:
 		if not current_errors.is_empty():
 			return {"ok": false, "message": " ".join(current_errors), "code": "invalid"}
 		return {"ok": true, "record": record.duplicate(true), "migrated": false}
-	if is_integer(schema, 1, 9):
+	if is_integer(schema, 1, 10):
 		# Validate the old contract BEFORE adding fields; malformed/unknown fields
 		# must not be silently repaired or discarded by migration.
 		var legacy_errors := _validate(record, int(schema))
@@ -217,10 +219,29 @@ static func migrate_record(record: Variant) -> Dictionary:
 		elif int(schema) < 9:
 			migrated.inventory = Inventory.migrate(record.inventory)
 		else:
+			if int(schema) == 9:
+				migrated.inventory.version = 4
 			migrated.inventory.version = Inventory.VERSION
+			if not migrated.inventory.entries.has("item_1"):
+				Inventory.grant_test_equipment(migrated.inventory)
 		if int(schema) < 6:
 			migrated.fishing = Fishing.create()
-		elif int(schema) == 6:
+		elif int(schema) < 9:
+			migrated.fishing.version = 2
+			migrated.fishing.rig_mode = "lure"
+			migrated.fishing.bait_item_id = ""
+			migrated.fishing.last_catch_weight_g = 250 if migrated.fishing.state == "hooked" else 0
+			migrated.fishing.retained_count = 0
+			migrated.fishing.released_count = 0
+		elif int(schema) == 9:
+			migrated.fishing.version = 2
+			migrated.fishing.rig_mode = "lure"
+			migrated.fishing.bait_item_id = ""
+		elif int(schema) == 10:
+			migrated.fishing.version = Fishing.VERSION
+			migrated.fishing.rig_mode = "lure"
+			migrated.fishing.bait_item_id = ""
+		if int(schema) == 6:
 			migrated.fishing.last_catch_weight_g = 250 if migrated.fishing.state == "hooked" else 0
 			migrated.fishing.retained_count = 0
 			migrated.fishing.released_count = 0

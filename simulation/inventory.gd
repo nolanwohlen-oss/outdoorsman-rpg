@@ -1,14 +1,14 @@
 extends RefCounted
 ## Versioned physical records. Commands must preserve identity and mass.
 
-const VERSION := 4
+const VERSION := 5
 const CAPACITY_G := 15000
 const Ecology = preload("res://simulation/ecology.gd")
 const Map = preload("res://simulation/testbed_map.gd")
 const CONTAINERS := {"pack": 15000, "camp": 50000}
 # Quantities are mL for water, kcal for legacy ration compatibility, units for
 # wood/bait, and grams for unidentified historical fish. Mass is separate.
-const DEFINITIONS := {"water_ml": [1, 1], "food_kcal": [1, 4], "firewood_units": [100, 1], "bait_units": [50, 1], "legacy_fish": [1, 1], "whole_fish": [1, 1], "cleaned_fish": [1, 1], "cooked_fish": [1, 1], "cut_bait": [1, 1]}
+const DEFINITIONS := {"water_ml": [1, 1], "food_kcal": [1, 4], "firewood_units": [100, 1], "bait_units": [50, 1], "legacy_fish": [1, 1], "whole_fish": [1, 1], "cleaned_fish": [1, 1], "cooked_fish": [1, 1], "cut_bait": [1, 1], "test_rod": [300, 1], "test_spoon": [20, 1]}
 const PRODUCTS := ["cleaned_fish", "cooked_fish", "cut_bait"]
 
 static func use_item(record: Dictionary, id: String, action: String, zone: String) -> Dictionary:
@@ -66,7 +66,9 @@ static func use_item(record: Dictionary, id: String, action: String, zone: Strin
 	return {"ok": true, "message": detail, "minutes": minutes, "energy": energy}
 
 static func create() -> Dictionary:
-	return migrate({"items": {"water_ml": 2000, "food_kcal": 4000, "firewood_units": 12, "bait_units": 0, "fish_food_g": 0}})
+	var record := migrate({"items": {"water_ml": 2000, "food_kcal": 4000, "firewood_units": 12, "bait_units": 0, "fish_food_g": 0}})
+	grant_test_equipment(record)
+	return record
 
 static func migrate(old: Dictionary) -> Dictionary:
 	var record := {"version": VERSION, "next_id": 1, "entries": {}}
@@ -75,6 +77,18 @@ static func migrate(old: Dictionary) -> Dictionary:
 		if amount > 0:
 			_insert(record, "legacy_fish" if key == "fish_food_g" else key, amount, "pack", "", 0, "", -1)
 	return record
+
+static func grant_test_equipment(record: Dictionary) -> void:
+	for kind in ["test_rod", "test_spoon"]:
+		_insert(record, kind, 1, "pack", "", 0, "", -1)
+
+static func carried_id(record: Dictionary, kind: String) -> String:
+	var ids: Array = record.entries.keys()
+	ids.sort()
+	for id in ids:
+		if record.entries[id].container == "pack" and record.entries[id].kind == kind:
+			return id
+	return ""
 
 static func _mass(kind: String, quantity: int) -> int:
 	return int(ceil(float(quantity * int(DEFINITIONS[kind][0])) / int(DEFINITIONS[kind][1])))
@@ -128,10 +142,10 @@ static func transfer(record: Dictionary, id: String, destination: String, zone: 
 static func _integer(value: Variant, minimum: int, maximum: int) -> bool:
 	return typeof(value) in [TYPE_INT, TYPE_FLOAT] and is_finite(float(value)) and value == floor(value) and value >= minimum and value <= maximum
 
-static func validate(record: Variant, now_ms: int = 3153600000000, legacy_v3: bool = false) -> PackedStringArray:
+static func validate(record: Variant, now_ms: int = 3153600000000, legacy_v3: bool = false, legacy_v4: bool = false) -> PackedStringArray:
 	if not record is Dictionary or record.size() != 3 or not record.has_all(["version", "next_id", "entries"]):
 		return PackedStringArray(["Invalid physical inventory fields."])
-	var expected := 3 if legacy_v3 else VERSION
+	var expected := 3 if legacy_v3 else (4 if legacy_v4 else VERSION)
 	if not _integer(record.version, expected, expected) or not _integer(record.next_id, 1, 2147483647) or not record.entries is Dictionary or record.entries.size() > 1000:
 		return PackedStringArray(["Invalid physical inventory header."])
 	for id in record.entries:
@@ -149,6 +163,8 @@ static func validate(record: Variant, now_ms: int = 3153600000000, legacy_v3: bo
 			return PackedStringArray(["Invalid item quantity, mass, condition or time."])
 		if legacy_v3 and e.kind in PRODUCTS:
 			return PackedStringArray(["Product is not supported by the old inventory version."])
+		if e.kind in ["test_rod", "test_spoon"] and (legacy_v3 or legacy_v4 or e.quantity != 1):
+			return PackedStringArray(["Invalid equipment record."])
 		if e.kind in PRODUCTS:
 			var known: bool = e.species in Ecology.SPECIES and e.origin in Map.ZONE_IDS and e.condition >= 0
 			var unknown: bool = e.species == "" and e.origin == "" and e.caught_ms == 0 and e.condition == -1
