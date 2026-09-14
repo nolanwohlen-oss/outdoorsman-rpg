@@ -172,7 +172,7 @@ static func service_tackle(record: Dictionary, id: String) -> Dictionary:
 	var before := int(entry.condition)
 	if before >= 1000:
 		return {"ok": false, "message": "Selected tackle is already at full condition."}
-	var service := {
+	var service: Array = {
 		"test_line": [300, 15],
 		"test_reel": [250, 20],
 		"test_rod": [200, 25],

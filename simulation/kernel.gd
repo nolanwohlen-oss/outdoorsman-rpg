@@ -322,7 +322,7 @@ func fight_fishing(action: String, drag: String = "balanced") -> Dictionary:
 	var rod_wear := 2 + power_load + (5 if action == "pressure" else 2)
 	var terminal_wear := 2 + power_load + tension_load
 	var terminal_limit := Inventory.terminal_load_limit(candidate.world.inventory, terminal_id)
-	var terminal_break := result.status == "continue" and int(candidate.world.fishing.line_tension) >= terminal_limit
+	var terminal_break: bool = result.status == "continue" and int(candidate.world.fishing.line_tension) >= terminal_limit
 	var wear := Inventory.apply_rig_wear(candidate.world.inventory, rod_id, reel_id, line_id, terminal_id, rod_wear, reel_wear, line_wear, terminal_wear, result.status == "overload", terminal_break)
 	if not wear.ok:
 		return _failure(wear.message)
