@@ -255,6 +255,14 @@ func _build_clock(column: VBoxContainer) -> void:
 	var row := _row(column)
 	_button(row, "Observe", _observe)
 	_button(row, "Go to camp\n2 min", _move_to.bind("elevated_camp"))
+	column.add_child(HSeparator.new())
+	column.add_child(_label("Fishing test actions", 26, ACCENT))
+	_button(column, "Prepare rig", _fish_rig)
+	_button(column, "Cast", _fish_cast)
+	row = _row(column)
+	_button(row, "Set hook", _fish_hook)
+	_button(row, "Land and retain", _fish_land.bind(true))
+	_button(column, "Land and release", _fish_land.bind(false))
 	column.add_child(_label("Safe waiting", 27, ACCENT))
 	safe_wait_label = _label("", 22, MUTED)
 	column.add_child(safe_wait_label)
@@ -506,6 +514,22 @@ func _after_action(result: Dictionary) -> void:
 func _observe() -> void:
 	if _can_act():
 		_after_action(kernel.observe())
+
+func _fish_rig() -> void:
+	if _can_act():
+		_after_action(kernel.rig_fishing())
+
+func _fish_cast() -> void:
+	if _can_act():
+		_after_action(kernel.cast_fishing())
+
+func _fish_hook() -> void:
+	if _can_act():
+		_after_action(kernel.hook_fishing())
+
+func _fish_land(retain: bool) -> void:
+	if _can_act():
+		_after_action(kernel.land_fishing(retain))
 
 func _move_to(destination: String) -> void:
 	if _can_act():
