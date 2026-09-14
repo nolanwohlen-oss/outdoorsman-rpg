@@ -5,6 +5,8 @@ const World = preload("res://simulation/world_state.gd")
 const Map = preload("res://simulation/testbed_map.gd")
 const CoastalEnvironment = preload("res://simulation/environment.gd")
 const Ecology = preload("res://simulation/ecology.gd")
+const Condition = preload("res://simulation/condition.gd")
+const Inventory = preload("res://simulation/inventory.gd")
 const MINUTE_MS := 60000
 const WAIT_MINUTES := [5, 15, 60]
 
@@ -15,8 +17,10 @@ func _advance_layers_to(target_ms: int) -> void:
 	while next <= target_ms:
 		CoastalEnvironment.advance_to(world.environment, world.seed, next)
 		Ecology.advance_to(world.ecology, world.seed, next, world.environment)
+		Condition.advance_to(world.condition, next, world.player_zone, world.environment)
 		next += Ecology.STEP_MS
 	CoastalEnvironment.advance_to(world.environment, world.seed, target_ms)
+	Condition.advance_to(world.condition, target_ms, world.player_zone, world.environment)
 
 func _init(initial_seed: int = 13092026) -> void:
 	world = World.new()
@@ -24,6 +28,8 @@ func _init(initial_seed: int = 13092026) -> void:
 	world.rng_state = world.seed % (World.MAX_SEED - 1) + 1
 	world.environment = CoastalEnvironment.create(world.seed, world.game_time_ms)
 	world.ecology = Ecology.create(world.seed, world.game_time_ms)
+	world.condition = Condition.create(world.game_time_ms)
+	world.inventory = Inventory.create()
 	for kind in ["sunrise", "sunset", "midnight"]:
 		_queue(World.next_calendar_time(kind, world.game_time_ms), kind, "")
 	_log("world_started", "New world. Seed %d. Player at sandy shore." % world.seed)
