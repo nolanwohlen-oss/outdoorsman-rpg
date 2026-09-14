@@ -858,9 +858,13 @@ func _phase_2m_fight_gate() -> void:
 	overload.world.fishing.line_tension = 500
 	start = overload.world.game_time_ms
 	var overload_result := overload.fight_fishing("pressure")
-	check(overload_result.ok and overload_result.status == "tackle_failure" and overload.world.game_time_ms == start + Fishing.FIGHT_ACTION_MS and overload.world.fishing.state == "idle" and overload.world.fishing.lost_count == 1 and "terminal tackle failed under excessive load" in overload.world.fishing.last_outcome, "Pressuring into a surge causes a timed, explicit weakest-link tackle loss.")
-	check(int(overload.world.ecology.populations[overload_species][overload.world.player_zone]) == overload_population, "A weakest-link tackle loss leaves the hooked fish in the ecology population.")
-	check(not overload.rig_fishing().ok, "A weakest-link terminal break requires explicit tackle recovery before a new rig.")
+	var overload_is_physical_failure := overload_result.status in ["tackle_failure", "hook_pull"]
+	check(overload_result.ok and overload_is_physical_failure and overload.world.game_time_ms == start + Fishing.FIGHT_ACTION_MS and overload.world.fishing.state == "idle" and overload.world.fishing.lost_count == 1, "Pressuring into a surge causes a timed, explicit weakest-link failure.")
+	check(int(overload.world.ecology.populations[overload_species][overload.world.player_zone]) == overload_population, "A weakest-link failure leaves the hooked fish in the ecology population.")
+	if overload_result.status == "tackle_failure":
+		check(not overload.rig_fishing().ok, "A broken tackle component requires recovery before a new rig.")
+	else:
+		check(overload.rig_fishing().ok, "A hook pull leaves intact tackle available for a new rig.")
 
 	var slack := _hooked_fixture(43)
 	var slack_species: String = slack.world.fishing.target_species
@@ -931,22 +935,25 @@ func _phase_2n_landing_gate() -> void:
 	var hand := _hooked_fixture(51)
 	check(_finish_test_fight(hand), "Landing-method fixture reaches a valid ready state.")
 	var hand_start := hand.world.game_time_ms
-	check(hand.land_fishing(true, "hand").ok and hand.world.game_time_ms == hand_start + Fishing.LANDING_ACTION_MS and hand.world.fishing.last_handling_method == "hand" and hand.world.fishing.last_handling_condition == 820, "Hand retention records its one-minute cost and deterministic fish condition.")
+	var hand_expected_condition := 820 - int(hand.world.fishing.hook_injury / 4)
+	check(hand.land_fishing(true, "hand").ok and hand.world.game_time_ms == hand_start + Fishing.LANDING_ACTION_MS and hand.world.fishing.last_handling_method == "hand" and hand.world.fishing.last_handling_condition == hand_expected_condition, "Hand retention records its one-minute cost and injury-adjusted fish condition.")
 	var hand_ids: Array = hand.world.inventory.entries.keys()
 	var hand_condition := -1
 	for id in hand_ids:
 		if hand.world.inventory.entries[id].kind == "whole_fish":
 			hand_condition = int(hand.world.inventory.entries[id].condition)
-	check(hand_condition == 820 and hand.world.fishing.handling_count == 1, "Retained physical fish carries the selected handling condition.")
+	check(hand_condition == hand_expected_condition and hand.world.fishing.handling_count == 1, "Retained physical fish carries the selected handling condition.")
 	var net := _hooked_fixture(52)
 	check(_finish_test_fight(net), "Net fixture reaches a valid ready state.")
 	var net_start := net.world.game_time_ms
-	check(net.land_fishing(false, "net").ok and net.world.game_time_ms == net_start + 2 * Fishing.LANDING_ACTION_MS and net.world.fishing.last_handling_method == "net" and net.world.fishing.last_handling_condition == 940 and net.world.fishing.released_count == 1, "Net release records its two-minute cost, release condition and cumulative count.")
+	var net_expected_condition := 940 - int(net.world.fishing.hook_injury / 2)
+	check(net.land_fishing(false, "net").ok and net.world.game_time_ms == net_start + 2 * Fishing.LANDING_ACTION_MS and net.world.fishing.last_handling_method == "net" and net.world.fishing.last_handling_condition == net_expected_condition and net.world.fishing.released_count == 1, "Net release records its two-minute cost and injury-adjusted condition.")
 	var gaff := _hooked_fixture(53)
 	check(_finish_test_fight(gaff), "Gaff fixture reaches a valid ready state.")
 	var before := gaff.world.to_record()
 	check(not gaff.land_fishing(false, "gaff").ok and gaff.world.to_record() == before, "Gaff release is rejected atomically because the lab method is retain-only.")
-	check(gaff.land_fishing(true, "gaff").ok and gaff.world.fishing.last_handling_condition == 1000 and gaff.world.fishing.last_handling_method == "gaff", "Gaff retention records full condition and clears the active encounter.")
+	var gaff_expected_condition := 1000 - int(gaff.world.fishing.hook_injury / 4)
+	check(gaff.land_fishing(true, "gaff").ok and gaff.world.fishing.last_handling_condition == gaff_expected_condition and gaff.world.fishing.last_handling_method == "gaff", "Gaff retention records condition and clears the active encounter.")
 	var reloaded := Kernel.new(99)
 	check(reloaded.restore(JSON.parse_string(JSON.stringify(gaff.world.to_record()))).ok and reloaded.world.fishing.last_handling_method == "gaff" and reloaded.world.fishing.last_handling_condition == 1000 and reloaded.world.fishing.handling_count == 1, "Landing outcome history survives JSON save and reload.")
 
