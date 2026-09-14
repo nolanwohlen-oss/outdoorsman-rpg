@@ -955,7 +955,7 @@ func _phase_2n_landing_gate() -> void:
 	var gaff_expected_condition := 1000 - int(gaff.world.fishing.hook_injury / 4)
 	check(gaff.land_fishing(true, "gaff").ok and gaff.world.fishing.last_handling_condition == gaff_expected_condition and gaff.world.fishing.last_handling_method == "gaff", "Gaff retention records condition and clears the active encounter.")
 	var reloaded := Kernel.new(99)
-	check(reloaded.restore(JSON.parse_string(JSON.stringify(gaff.world.to_record()))).ok and reloaded.world.fishing.last_handling_method == "gaff" and reloaded.world.fishing.last_handling_condition == 1000 and reloaded.world.fishing.handling_count == 1, "Landing outcome history survives JSON save and reload.")
+	check(reloaded.restore(JSON.parse_string(JSON.stringify(gaff.world.to_record()))).ok and reloaded.world.fishing.last_handling_method == "gaff" and reloaded.world.fishing.last_handling_condition == gaff_expected_condition and reloaded.world.fishing.handling_count == 1, "Landing outcome history survives JSON save and reload.")
 
 func _audit_regressions() -> void:
 	_inventory_records()
