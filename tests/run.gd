@@ -48,7 +48,7 @@ func _contracts() -> void:
 	bad.seed = true
 	mutations.append(bad)
 	bad = record.duplicate(true)
-	bad.schema_version = 6
+	bad.schema_version = 7
 	mutations.append(bad)
 	bad = record.duplicate(true)
 	bad.unknown_field = "must not silently discard"
@@ -78,6 +78,7 @@ func _contracts() -> void:
 	legacy.erase("ecology")
 	legacy.erase("condition")
 	legacy.erase("inventory")
+	legacy.erase("fishing")
 	legacy.erase("condition")
 	legacy.erase("inventory")
 	legacy.erase("map_version")
@@ -162,6 +163,16 @@ func _actions() -> void:
 	before = k.world.to_record()
 	check(not k.move("elevated_camp").ok and k.world.to_record() == before, "No-op movement does not consume time.")
 	check(not k.wait_minutes(1440).ok and k.world.to_record() == before, "The action API rejects unrestricted waits.")
+	k.move("sandy_shore")
+	k.move("shallow_flat")
+	k.move("tidal_channel")
+	check(k.rig_fishing().ok and k.cast_fishing().ok, "Fishing rig and cast require a valid water zone and create an encounter.")
+	check(not k.hook_fishing().ok, "A bite cannot be set before its deterministic window.")
+	k.advance_game_ms(15 * Kernel.MINUTE_MS)
+	check(k.hook_fishing().ok and k.world.fishing.state == "hooked", "The deterministic bite window produces a hookable encounter.")
+	var food_before: int = k.world.inventory.items.food_kcal
+	check(k.land_fishing(true).ok and k.world.fishing.state == "idle" and k.world.inventory.items.food_kcal > food_before, "Landing and retaining a fish records the outcome and adds food quantity.")
+	k.move_plan("elevated_camp")
 	k.schedule_marker(600000, "stop here", true)
 	k.schedule_marker(600000, "same instant")
 	k.schedule_marker(660000, "later")
@@ -212,6 +223,7 @@ func _save_files() -> void:
 	legacy.erase("ecology")
 	legacy.erase("condition")
 	legacy.erase("inventory")
+	legacy.erase("fishing")
 	legacy.erase("map_version")
 	legacy.erase("travel")
 	legacy.schema_version = 1
@@ -536,6 +548,7 @@ func _environment_migrations() -> void:
 		legacy.erase("ecology")
 		legacy.erase("condition")
 		legacy.erase("inventory")
+		legacy.erase("fishing")
 		legacy.schema_version = schema
 		if schema == 1:
 			legacy.erase("map_version")
