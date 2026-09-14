@@ -702,7 +702,7 @@ func _fish_uses() -> void:
 	legacy.schema_version = 9
 	legacy.inventory.version = 3
 	legacy.fishing.version = 1
-	for field in ["rig_mode", "bait_item_id", "rod_item_id", "terminal_item_id", "reel_item_id", "line_item_id", "fish_stamina", "line_tension", "fish_distance_cm", "fight_round", "fish_cue", "lost_count"]:
+	for field in ["rig_mode", "bait_item_id", "rod_item_id", "terminal_item_id", "reel_item_id", "line_item_id", "fish_stamina", "line_tension", "fish_distance_cm", "fight_round", "fish_cue", "lost_count", "presentation", "strike_cue"]:
 		legacy.fishing.erase(field)
 	for key in legacy.inventory.entries.keys():
 		if legacy.inventory.entries[key].kind in Inventory.TEST_EQUIPMENT:
@@ -760,7 +760,7 @@ func _fishing_equipment_gate() -> void:
 	legacy10.schema_version = 10
 	legacy10.inventory.version = 4
 	legacy10.fishing.version = 1
-	for field in ["rig_mode", "bait_item_id", "rod_item_id", "terminal_item_id", "reel_item_id", "line_item_id", "fish_stamina", "line_tension", "fish_distance_cm", "fight_round", "fish_cue", "lost_count"]:
+	for field in ["rig_mode", "bait_item_id", "rod_item_id", "terminal_item_id", "reel_item_id", "line_item_id", "fish_stamina", "line_tension", "fish_distance_cm", "fight_round", "fish_cue", "lost_count", "presentation", "strike_cue"]:
 		legacy10.fishing.erase(field)
 	for id in legacy10.inventory.entries.keys():
 		if legacy10.inventory.entries[id].kind in Inventory.TEST_EQUIPMENT:
@@ -784,7 +784,7 @@ func _fishing_equipment_gate() -> void:
 	legacy11.fishing.version = 2
 	legacy11.fishing.erase("rod_item_id")
 	legacy11.fishing.erase("terminal_item_id")
-	for field in ["reel_item_id", "line_item_id", "fish_stamina", "line_tension", "fish_distance_cm", "fight_round", "fish_cue", "lost_count"]:
+	for field in ["reel_item_id", "line_item_id", "fish_stamina", "line_tension", "fish_distance_cm", "fight_round", "fish_cue", "lost_count", "presentation", "strike_cue"]:
 		legacy11.fishing.erase(field)
 	for id in legacy11.inventory.entries.keys():
 		if legacy11.inventory.entries[id].kind in ["test_hook", "test_reel", "test_line"]:
@@ -809,7 +809,7 @@ func _downgrade_to_schema_12(record: Dictionary) -> Dictionary:
 		if legacy.inventory.entries[id].kind in ["test_reel", "test_line"]:
 			legacy.inventory.entries.erase(id)
 	legacy.fishing.version = 3
-	for field in ["reel_item_id", "line_item_id", "fish_stamina", "line_tension", "fish_distance_cm", "fight_round", "fish_cue", "lost_count"]:
+	for field in ["reel_item_id", "line_item_id", "fish_stamina", "line_tension", "fish_distance_cm", "fight_round", "fish_cue", "lost_count", "presentation", "strike_cue"]:
 		legacy.fishing.erase(field)
 	return legacy
 
@@ -959,7 +959,7 @@ func _audit_regressions() -> void:
 			old.erase("fishing")
 		else:
 			old.fishing.version = 1
-			for field in ["rig_mode", "bait_item_id", "rod_item_id", "terminal_item_id", "reel_item_id", "line_item_id", "fish_stamina", "line_tension", "fish_distance_cm", "fight_round", "fish_cue", "lost_count"]:
+			for field in ["rig_mode", "bait_item_id", "rod_item_id", "terminal_item_id", "reel_item_id", "line_item_id", "fish_stamina", "line_tension", "fish_distance_cm", "fight_round", "fish_cue", "lost_count", "presentation", "strike_cue"]:
 				old.fishing.erase(field)
 		if version == 6:
 			for key in ["last_catch_weight_g", "retained_count", "released_count"]:
