@@ -57,6 +57,7 @@ var fishing_status: Label
 var fight_buttons: Array[Button] = []
 var land_buttons: Array[Button] = []
 var selected_drag := "balanced"
+var selected_presentation := "steady"
 
 func _ready() -> void:
 	theme = _theme()
@@ -217,7 +218,7 @@ func _build_interface() -> void:
 	add_child(margin)
 	var layout := _column(margin, 8)
 	layout.add_child(_label("OUTDOORSMAN", 34))
-	layout.add_child(_label("SYSTEMS LAB  /  PHASE 2P", 20, ACCENT))
+	layout.add_child(_label("SYSTEMS LAB  /  PHASE 2Q", 20, ACCENT))
 	clock_label = _label("", 30)
 	calendar_label = _label("", 21, MUTED)
 	location_label = _label("", 23, ACCENT)
@@ -242,11 +243,11 @@ func _build_interface() -> void:
 	status_label = _label("", 21, ACCENT)
 	status_label.max_lines_visible = 4
 	layout.add_child(status_label)
-	var build := "v0.17.0 · local build"
+	var build := "v0.18.0 · local build"
 	if FileAccess.file_exists("res://config/build_info.json"):
 		var info = JSON.parse_string(FileAccess.get_file_as_string("res://config/build_info.json"))
 		if info is Dictionary:
-			build = "v%s · build %s · %s" % [str(info.get("version", "0.17.0")), str(info.get("number", "local")).trim_suffix(".0"), info.get("commit", "unknown")]
+			build = "v%s · build %s · %s" % [str(info.get("version", "0.18.0")), str(info.get("number", "local")).trim_suffix(".0"), info.get("commit", "unknown")]
 	layout.add_child(_label(build, 18, MUTED))
 	new_world_dialog = ConfirmationDialog.new()
 	new_world_dialog.title = "Start a new test world?"
@@ -267,10 +268,16 @@ func _build_clock(column: VBoxContainer) -> void:
 	column.add_child(_label("Fishing test actions", 26, ACCENT))
 	fishing_status = _label("", 21, MUTED)
 	column.add_child(fishing_status)
-	column.add_child(_label("Test bite delay: 2 game minutes (20 seconds while the clock runs). Select cut bait in Layers before preparing a bait rig.", 19, MUTED))
+	column.add_child(_label("Strike-check delay: 2 game minutes (20 seconds while the clock runs). A cast no longer identifies or guarantees a fish; ecology, water, rig and presentation determine engagement.", 19, MUTED))
 	_button(column, "Prepare spoon rig", _fish_rig.bind("lure"))
 	_button(column, "Prepare bait rig with selected item", _fish_rig.bind("bait"))
+	column.add_child(_label("Choose presentation before casting. Lure supports steady/drift; bait supports drift/soak.", 19, MUTED))
+	row = _row(column)
+	_button(row, "Steady", _set_presentation.bind("steady"))
+	_button(row, "Drift", _set_presentation.bind("drift"))
+	_button(row, "Soak", _set_presentation.bind("soak"))
 	_button(column, "Cast selected rig", _fish_cast)
+	_button(column, "Read presentation / check strike", _fish_check)
 	_button(column, "Set hook", _fish_hook)
 	column.add_child(_label("Drag now changes tension and fish progress. Loose protects tackle but gives distance; tight gains control at higher break risk.", 19, MUTED))
 	row = _row(column)
@@ -472,9 +479,13 @@ func _refresh() -> void:
 		var f: Dictionary = kernel.world.fishing
 		var ready := Fishing.landing_ready(f)
 		if f.state == "hooked":
-			fishing_status.text = "HOOKED: %s · %d g\nCue: %s · Selected drag: %s\nFish stamina: %d · Line tension: %d / 1000\nDistance: %.1f m · Fight choices: %d\n%s\nRetained %d · Released %d · Lost %d\nLast handling: %s · condition %d/1000" % [String(f.target_species).replace("_", " ").capitalize(), f.last_catch_weight_g, String(f.fish_cue).to_upper(), selected_drag.capitalize(), f.fish_stamina, f.line_tension, float(f.fish_distance_cm) / 100.0, f.fight_round, "READY TO LAND" if ready else "Keep fighting", f.retained_count, f.released_count, f.lost_count, f.last_handling_method if not f.last_handling_method.is_empty() else "none", f.last_handling_condition]
+			fishing_status.text = "HOOKED: %s · %d g\nPresentation: %s · Strike: %s\nFight cue: %s · Selected drag: %s\nFish stamina: %d · Line tension: %d / 1000\nDistance: %.1f m · Fight choices: %d\n%s\nRetained %d · Released %d · Lost %d\nLast handling: %s · condition %d/1000" % [String(f.target_species).replace("_", " ").capitalize(), f.last_catch_weight_g, String(f.presentation).capitalize(), String(f.strike_cue).to_upper(), String(f.fish_cue).to_upper(), selected_drag.capitalize(), f.fish_stamina, f.line_tension, float(f.fish_distance_cm) / 100.0, f.fight_round, "READY TO LAND" if ready else "Keep fighting", f.retained_count, f.released_count, f.lost_count, f.last_handling_method if not f.last_handling_method.is_empty() else "none", f.last_handling_condition]
 		else:
-			fishing_status.text = "State: %s · Rig: %s\nTarget: %s · Bite: %s\nRetained %d · Released %d · Lost %d" % [f.state, f.rig_mode, f.target_species if not f.target_species.is_empty() else "none", Kernel.time_text(int(f.bite_due_ms)) if f.state == "cast" else "not waiting", f.retained_count, f.released_count, f.lost_count]
+			if f.state == "rigged" and not Fishing.presentation_supported(f.rig_mode, selected_presentation):
+				selected_presentation = Fishing.default_presentation(f.rig_mode)
+			var presentation_text := String(f.presentation).capitalize() if f.state == "cast" else selected_presentation.capitalize()
+			var strike_text := (String(f.strike_cue).to_upper() + " cue") if f.state == "cast" and not f.strike_cue.is_empty() else ("waiting" if f.state == "cast" else "none")
+			fishing_status.text = "State: %s · Rig: %s\nPresentation: %s · Strike: %s\nSpecies: unknown until hooked\nNext check: %s\nRetained %d · Released %d · Lost %d" % [f.state, f.rig_mode, presentation_text, strike_text, Kernel.time_text(int(f.bite_due_ms)) if f.state == "cast" else "not waiting", f.retained_count, f.released_count, f.lost_count]
 		for button in fight_buttons:
 			button.disabled = save_blocked or f.state != "hooked" or ready
 		for button in land_buttons:
@@ -635,15 +646,28 @@ func _fish_rig(mode: String = "lure") -> void:
 		var bait_id := ""
 		if mode == "bait" and item_picker.selected >= 0:
 			bait_id = str(item_picker.get_item_metadata(item_picker.selected))
-		_after_action(kernel.rig_fishing(mode, bait_id))
+		var result := kernel.rig_fishing(mode, bait_id)
+		if result.ok:
+			selected_presentation = Fishing.default_presentation(mode)
+		_after_action(result)
 
 func _fish_cast() -> void:
 	if _can_act():
-		_after_action(kernel.cast_fishing())
+		_after_action(kernel.cast_fishing(selected_presentation))
+
+func _fish_check() -> void:
+	if _can_act():
+		_after_action(kernel.check_fishing())
 
 func _fish_hook() -> void:
 	if _can_act():
 		_after_action(kernel.hook_fishing())
+
+func _set_presentation(value: String) -> void:
+	if value in Fishing.PRESENTATIONS:
+		selected_presentation = value
+		_status("Presentation set to %s for the next cast." % value)
+		_refresh()
 
 func _set_drag(value: String) -> void:
 	if value in Fishing.DRAG_SETTINGS:

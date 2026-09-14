@@ -239,6 +239,8 @@ func rig_fishing(mode: String = "lure", bait_item_id: String = "") -> Dictionary
 	world.fishing.bite_due_ms = 0
 	world.fishing.last_catch_weight_g = 0
 	world.fishing.rig_mode = mode
+	world.fishing.presentation = ""
+	world.fishing.strike_cue = ""
 	world.fishing.bait_item_id = bait_item_id if mode == "bait" else ""
 	world.fishing.rod_item_id = rod_id
 	world.fishing.terminal_item_id = terminal_id
@@ -248,28 +250,54 @@ func rig_fishing(mode: String = "lure", bait_item_id: String = "") -> Dictionary
 	_log("fishing_rigged", "%s rig prepared at %s with %s, %s, %s, and %s." % [mode.capitalize(), world.player_zone, rod_id, reel_id, line_id, terminal_id])
 	return {"ok": true, "message": "%s rig prepared." % mode.capitalize()}
 
-func cast_fishing() -> Dictionary:
+func cast_fishing(presentation: String = "") -> Dictionary:
 	if world.fishing.state != "rigged" or world.fishing.zone != world.player_zone:
 		return _failure("Prepare a rig at your current water zone first.")
+	if presentation.is_empty():
+		presentation = Fishing.default_presentation(world.fishing.rig_mode)
+	if not Fishing.presentation_supported(world.fishing.rig_mode, presentation):
+		return _failure("Choose a presentation compatible with the prepared rig.")
 	var link_errors := Fishing.validate_inventory_links(world.fishing, world.inventory)
 	if not link_errors.is_empty():
 		return _failure(link_errors[0])
-	var weighted_choices: Array[String] = []
-	for species in Fishing.SPECIES:
-		if int(world.ecology.populations[species].get(world.player_zone, 0)) > 0:
-			for count in Fishing.species_weight(species, world.fishing.rig_mode):
-				weighted_choices.append(species)
-	if weighted_choices.is_empty():
-		return _failure("No test population is present here.")
+	if world.game_time_ms > World.MAX_TIME_MS - Fishing.BITE_DELAY_MS:
+		return _failure("Cast exceeds the supported clock range.")
 	if world.fishing.rig_mode == "bait":
 		world.inventory.entries[world.fishing.bait_item_id].mass_g = maxi(0, int(world.inventory.entries[world.fishing.bait_item_id].mass_g) - 50)
 		if world.inventory.entries[world.fishing.bait_item_id].mass_g == 0:
 			world.inventory.entries.erase(world.fishing.bait_item_id)
 	world.fishing.state = "cast"
-	world.fishing.target_species = weighted_choices[posmod(world.seed + world.game_time_ms, weighted_choices.size())]
+	world.fishing.target_species = ""
+	world.fishing.presentation = presentation
+	world.fishing.strike_cue = ""
 	world.fishing.bite_due_ms = world.game_time_ms + Fishing.BITE_DELAY_MS
-	_log("fishing_cast", "%s cast into %s; test bite window opens in 2 game minutes." % [world.fishing.rig_mode.capitalize(), world.player_zone])
-	return {"ok": true, "message": "Cast complete. Check for a bite after 2 game minutes."}
+	_log("fishing_cast", "%s cast into %s with %s presentation; first strike check in 2 game minutes." % [world.fishing.rig_mode.capitalize(), world.player_zone, presentation])
+	return {"ok": true, "message": "Cast complete with %s presentation. No species is identified; check for a strike after 2 game minutes." % presentation}
+
+func check_fishing() -> Dictionary:
+	if world.fishing.zone != world.player_zone:
+		return _failure("Return to the encounter zone or cancel fishing.")
+	if world.fishing.state != "cast":
+		return _failure("Cast a prepared rig before reading the presentation.")
+	if world.game_time_ms < int(world.fishing.bite_due_ms):
+		return _failure("No strike window yet; keep working the presentation.")
+	var link_errors := Fishing.validate_inventory_links(world.fishing, world.inventory)
+	if not link_errors.is_empty():
+		return _failure(link_errors[0])
+	if not world.fishing.target_species.is_empty():
+		return {"ok": true, "status": "strike", "message": "%s strike cue is still present. Set the hook when ready." % String(world.fishing.strike_cue).capitalize()}
+	var water: Dictionary = world.environment.water_by_zone[world.player_zone]
+	var engagement := Fishing.engagement_result(world.ecology.populations, world.player_zone, world.fishing.rig_mode, world.fishing.presentation, water)
+	if not engagement.engaged:
+		if world.game_time_ms > World.MAX_TIME_MS - Fishing.BITE_DELAY_MS:
+			return _failure("Strike check exceeds the supported clock range.")
+		world.fishing.bite_due_ms = world.game_time_ms + Fishing.BITE_DELAY_MS
+		_log("fishing_present", "%s %s presentation produced no clear strike at %s; next check in 2 game minutes." % [world.fishing.presentation.capitalize(), world.fishing.rig_mode, world.player_zone])
+		return {"ok": true, "status": "no_strike", "message": "No clear strike. The presentation continues; check again after 2 game minutes or cancel and change approach."}
+	world.fishing.target_species = String(engagement.species)
+	world.fishing.strike_cue = String(engagement.cue)
+	_log("fish_strike", "%s strike cue on a %s %s presentation at %s; species remains unidentified." % [world.fishing.strike_cue.capitalize(), world.fishing.presentation, world.fishing.rig_mode, world.player_zone])
+	return {"ok": true, "status": "strike", "message": "%s strike cue detected. Species remains unidentified until the hook is set." % world.fishing.strike_cue.capitalize()}
 
 func hook_fishing() -> Dictionary:
 	if world.fishing.zone != world.player_zone:
@@ -277,15 +305,19 @@ func hook_fishing() -> Dictionary:
 	if world.fishing.state != "cast":
 		return _failure("Nothing is waiting on the line.")
 	if world.game_time_ms < int(world.fishing.bite_due_ms):
-		return _failure("No bite yet; keep the line out.")
+		return _failure("No strike window yet; keep working the presentation.")
+	if world.fishing.target_species.is_empty():
+		var strike := check_fishing()
+		if not strike.ok or strike.get("status", "") != "strike":
+			return strike
 	var link_errors := Fishing.validate_inventory_links(world.fishing, world.inventory)
 	if not link_errors.is_empty():
 		return _failure(link_errors[0])
 	world.fishing.state = "hooked"
 	world.fishing.last_catch_weight_g = 250 + posmod(world.seed + world.game_time_ms + world.player_zone.length() * 31, 1750)
 	Fishing.start_fight(world.fishing, world.environment.water_by_zone[world.player_zone])
-	_log("fish_hooked", "Hook set on %s; first cue: %s." % [world.fishing.target_species, world.fishing.fish_cue])
-	return {"ok": true, "message": "Fish hooked: %s. Read the %s cue." % [world.fishing.target_species, world.fishing.fish_cue]}
+	_log("fish_hooked", "Hook set on %s after %s presentation / %s strike; first fight cue: %s." % [world.fishing.target_species, world.fishing.presentation, world.fishing.strike_cue, world.fishing.fish_cue])
+	return {"ok": true, "message": "Fish hooked: %s. Read the %s fight cue." % [world.fishing.target_species, world.fishing.fish_cue]}
 
 func fight_fishing(action: String, drag: String = "balanced") -> Dictionary:
 	if world.fishing.zone != world.player_zone:
